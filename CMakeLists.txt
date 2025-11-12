@@ -34,15 +34,11 @@ add_subdirectory(external/secure-join)
 if(NOT TARGET coproto)
     message(STATUS "add target coproto manually")
 
-    # 先找到 Boost
-    # 设置 Boost 路径
     set(BOOST_ROOT "${LIBOTE_INSTALL_DIR}")
     set(BOOST_INCLUDEDIR "${LIBOTE_INSTALL_DIR}/include")
     set(BOOST_LIBRARYDIR "${LIBOTE_INSTALL_DIR}/lib")
-    # 查找 Boost
     find_package(Boost REQUIRED COMPONENTS system)
 
-    # 再构建coproto
     add_library(coproto INTERFACE)
     target_include_directories(coproto INTERFACE
         ${CMAKE_SOURCE_DIR}/external/secure-join/out/coproto
