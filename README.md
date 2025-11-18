@@ -123,5 +123,10 @@ OMP_NUM_THREADS=4 ctest -R "workflow_test" -V
 ```
 
 ## LICENSE
-                                 Apache License
-                           Version 2.0, January 2004
+This project is licensed under the **Apache License 2.0**.
+You may use, distribute, and modify this software in accordance with the terms of the license.
+
+For more details, please refer to the full license text in the LICENSE file included in this repository, or visit:
+```arduino
+http://www.apache.org/licenses/LICENSE-2.0
+```
