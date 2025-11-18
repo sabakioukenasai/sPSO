@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <thread>
 #include <unordered_set>
+#include <optional>
 // #include <span>
 
 // libOTe
@@ -61,8 +62,8 @@ static inline double fmt_comm(uint64_t bytes) {
 // ---------------------------- test main --------------------------
 int main() {
     // parameter
-    uint64_t n          = (1 << 16);        // set size
-    uint64_t inter      = (1 << 15);         // intersection size
+    uint64_t n          = (1 << 12);        // set size
+    uint64_t inter      = (1 << 11);         // intersection size
     // prepare seeds
     PRNG commPrng(block(123456));
     block setGenSeed = commPrng.get();
@@ -71,6 +72,7 @@ int main() {
     block oprfSeed = commPrng.get();
     block okvsSeed_w = commPrng.get();
     block okvsSeed_pos = commPrng.get();
+    PRNG otPrng(sysRandomSeed());
 
     // std::cout << "=================== Test start ===================" << std::endl;
 
@@ -94,18 +96,6 @@ int main() {
     uint64_t cuco_sz  = std::ceil(cuckoo_exp * n);  // cuckoo table size
 
     // std::cout << "=============== parameters prepared ==============" << std::endl;
-
-    // fake base ot implementation
-    PRNG otPrng(sysRandomSeed());
-    SilentOtExtSender sender;
-    SilentOtExtReceiver recver;
-    block delta = otPrng.get();
-
-    // sender.mMultType = MultType::QuasiCyclic;
-    // recver.mMultType = MultType::QuasiCyclic;
-
-    // F_2, single thread, no needed as we use SimplestOT instead
-    // fakeBase(cuco_sz, 2, 1, otPrng, recver, sender);
 
     std::cout << "================ Online test parameter ================\nset size="<<n<<", cuckoo expansion rate="<<cuckoo_exp<<", okvs expansion rate="<<okvs_exp<<", okvs w="<<w<< "\n\n";
 
@@ -183,21 +173,22 @@ int main() {
             t0 = std::chrono::high_resolution_clock::now(); 
             c0 = chl.bytesSent() + chl.bytesReceived();
 
-            // base OT
-            sender.configure(cuco_sz, 2, 1);    
-            auto count = sender.silentBaseOtCount();
-            std::vector<std::array<block, 2>> msg2_buf(count);
-            std::span<std::array<block, 2>> msg2_base(msg2_buf);
+            // ----------------- silentOT -----------------
+            SilentOtExtSender sOTSender;
+            sOTSender.configure(cuco_sz, 2, 1);
 
-            SimplestOT baseOtSender;
-            auto base_ot_task = baseOtSender.send(msg2_base, otPrng, chl);
-            sync_wait(base_ot_task);
-            sender.setSilentBaseOts(msg2_base);
+            // generate Base correlations
+            if (cuco_sz > (1<<10)) {
+                auto baseOtTask = sOTSender.genBaseCors(std::nullopt, otPrng, chl, true);
+                sync_wait(baseOtTask);
+            } else {
+                auto baseOtTask = sOTSender.genBaseCors(std::nullopt, otPrng, chl, false);
+                sync_wait(baseOtTask);
+            }
 
             std::vector<std::array<block, 2>> msg2(cuco_sz);
-            auto ot_task = sender.silentSend(msg2, otPrng, chl);
-            // auto ot_task = sender.silentSendInplace(delta, cuco_sz, otPrng, chl);
-            sync_wait(ot_task);
+            auto silentOtTask = sOTSender.silentSend(msg2, otPrng, chl);
+            sync_wait(silentOtTask);
 
             t1 = std::chrono::high_resolution_clock::now(); 
             c1 = chl.bytesSent() + chl.bytesReceived();
@@ -320,22 +311,23 @@ int main() {
             c0 = chl.bytesSent() + chl.bytesReceived();
             // simulate the execution of otE
 
-            // Base OT
-            recver.configure(cuco_sz, 2, 1);
-            BitVector choices_base = recver.sampleBaseChoiceBits(commPrng);
+            // ----------------- silentOT -----------------
+            SilentOtExtReceiver sOTRecver;
+            sOTRecver.configure(cuco_sz, 2, 1);
 
-            std::vector<block> msg_buf(choices_base.size());
-            std::span<block> msg_base(msg_buf);
-            SimplestOT baseOtRecver;
-            auto base_ot_task = baseOtRecver.receive(choices_base, msg_base, otPrng, chl);
-            sync_wait(base_ot_task);
-            recver.setSilentBaseOts(msg_base);
+            // generate base correlations
+            if (cuco_sz > (1<<10)) {
+                auto baseOtTask = sOTRecver.genBaseCors(otPrng, chl, true);
+                sync_wait(baseOtTask);
+            } else {
+                auto baseOtTask = sOTRecver.genBaseCors(otPrng, chl, false);
+                sync_wait(baseOtTask);
+            }
 
             std::vector<block> msg(cuco_sz);
             BitVector choice(cuco_sz);
-            auto ot_task = recver.silentReceive(choice, msg, otPrng, chl);
-            // auto ot_task = recver.silentReceiveInplace(cuco_sz, otPrng, chl);
-            sync_wait(ot_task);
+            auto silentOtTask = sOTRecver.silentReceive(choice, msg, otPrng, chl);
+            sync_wait(silentOtTask);
 
             t1 = std::chrono::high_resolution_clock::now(); 
             c1 = chl.bytesSent() + chl.bytesReceived();
@@ -374,24 +366,24 @@ void set_gen(uint64_t n, uint64_t start, vector<uint64_t>& keys, block seed) {
     return ;
 }
 
-void fakeBase(uint64_t n, uint64_t s, uint64_t threads, PRNG& prng, SilentOtExtReceiver& recver, SilentOtExtSender& sender) {
-    sender.configure(n, s, threads);
-    auto count = sender.silentBaseOtCount();
-    std::vector<std::array<block, 2>> msg2(count);
-    for (u64 i = 0; i < msg2.size(); ++i)
-    {
-        msg2[i][0] = prng.get();
-        msg2[i][1] = prng.get();
-    }
-    sender.setSilentBaseOts(msg2);
+// void fakeBase(uint64_t n, uint64_t s, uint64_t threads, PRNG& prng, SilentOtExtReceiver& recver, SilentOtExtSender& sender) {
+//     sender.configure(n, s, threads);
+//     auto baseCount = sender.baseCount();
+//     std::vector<std::array<block, 2>> msg2(baseCount.mBaseOtCount);
+//     for (u64 i = 0; i < msg2.size(); ++i)
+//     {
+//         msg2[i][0] = prng.get();
+//         msg2[i][1] = prng.get();
+//     }
+//     sender.setBaseCors(msg2);
 
-    // fake base OTs.
-    {
-        recver.configure(n, s, threads);
-        BitVector choices = recver.sampleBaseChoiceBits(prng);
-        std::vector<block> msg(choices.size());
-        for (u64 i = 0; i < msg.size(); ++i)
-            msg[i] = msg2[i][choices[i]];
-        recver.setSilentBaseOts(msg);
-    }
-}
+//     // fake base OTs.
+//     {
+//         recver.configure(n, s, threads);
+//         BitVector choices = recver.sampleBaseChoiceBits(prng);
+//         std::vector<block> msg(choices.size());
+//         for (u64 i = 0; i < msg.size(); ++i)
+//             msg[i] = msg2[i][choices[i]];
+//         recver.setBaseCors(msg);
+//     }
+// }

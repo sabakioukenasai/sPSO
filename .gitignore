@@ -1,4 +1,5 @@
 build
 external
 main.cpp
+.vscode
 .VSCodeCounter
