@@ -178,13 +178,8 @@ int main() {
             sOTSender.configure(cuco_sz, 2, 1);
 
             // generate Base correlations
-            if (cuco_sz > (1<<10)) {
-                auto baseOtTask = sOTSender.genBaseCors(std::nullopt, otPrng, chl, true);
-                sync_wait(baseOtTask);
-            } else {
-                auto baseOtTask = sOTSender.genBaseCors(std::nullopt, otPrng, chl, false);
-                sync_wait(baseOtTask);
-            }
+            auto bOtTask = sOTSender.genBaseOts(otPrng, chl);
+            sync_wait(bOtTask);
 
             std::vector<std::array<block, 2>> msg2(cuco_sz);
             auto silentOtTask = sOTSender.silentSend(msg2, otPrng, chl);
@@ -316,13 +311,8 @@ int main() {
             sOTRecver.configure(cuco_sz, 2, 1);
 
             // generate base correlations
-            if (cuco_sz > (1<<10)) {
-                auto baseOtTask = sOTRecver.genBaseCors(otPrng, chl, true);
-                sync_wait(baseOtTask);
-            } else {
-                auto baseOtTask = sOTRecver.genBaseCors(otPrng, chl, false);
-                sync_wait(baseOtTask);
-            }
+            auto sOtTask = sOTRecver.genBaseOts(otPrng, chl);
+            sync_wait(sOtTask);
 
             std::vector<block> msg(cuco_sz);
             BitVector choice(cuco_sz);

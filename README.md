@@ -63,7 +63,7 @@ We use a specific branch `657f6da90bff5774a2d01c824e997572d5e8ba00` to be compat
 cd external
 git clone https://github.com/osu-crypto/libOTe.git
 cd libOTe
-git checkout 657f6da90bff5774a2d01c824e997572d5e8ba00
+git checkout 657f6da90bff5774a2d01c824e997572d5e8ba00 --
 ```
 
 2. Build libOTe

@@ -1,34 +1,30 @@
 cmake_minimum_required(VERSION 3.15)
-project(MyProj C CXX)
+project(sPSO C CXX)
 
 enable_testing()
 
+# ===== Compiler Settings =====
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Common flags
 set(COMMON_FLAGS "-Wall -Wfatal-errors -Wno-unused-variable -fopenmp -mavx2 -mpclmul -msse2 -O3")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${COMMON_FLAGS}")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${COMMON_FLAGS} -fcoroutines -std=c++20 ")
 
-set(LIBOTE_INSTALL_DIR "${CMAKE_SOURCE_DIR}/external/install")
-list(APPEND CMAKE_PREFIX_PATH "${LIBOTE_INSTALL_DIR}")
+set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} ${COMMON_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${COMMON_FLAGS} -fcoroutines")
+
+set(THIRDPARTY_INSTALL_DIR "${CMAKE_SOURCE_DIR}/external/install")
+list(APPEND CMAKE_PREFIX_PATH "${THIRDPARTY_INSTALL_DIR}")
 
 find_package(libOTe REQUIRED)
 find_package(cryptoTools REQUIRED)
 find_package(coproto REQUIRED)
 find_package(secureJoin REQUIRED)
 
-include_directories(
-    ${LIBOTE_INSTALL_DIR}/include
-)
-
-get_property(allTargets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
-message(STATUS "Targets in this directory: ${allTargets}")
-
 # Disable auto fetching libOTe for secure-join
 set(FETCH_LIBOTE OFF CACHE BOOL "Disable auto fetching libOTe")
-set(SECUREJOIN_THIRDPARTY_DIR "${LIBOTE_INSTALL_DIR}")
-set(SECUREJOIN_THIRDPARTY_CLONE_DIR "${LIBOTE_INSTALL_DIR}")
+set(SECUREJOIN_THIRDPARTY_DIR "${THIRDPARTY_INSTALL_DIR}")
+set(SECUREJOIN_THIRDPARTY_CLONE_DIR "${THIRDPARTY_INSTALL_DIR}")
 
 # --- Add BLAKE3 ---
 add_library(blake3 STATIC
