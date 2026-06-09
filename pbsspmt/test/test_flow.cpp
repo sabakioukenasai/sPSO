@@ -22,6 +22,7 @@
 #include <libOTe/Base/SimplestOT.h>
 #include <libOTe/TwoChooseOne/Silent/SilentOtExtSender.h>
 #include <libOTe/TwoChooseOne/Silent/SilentOtExtReceiver.h>
+#include <volePSI/Paxos.h>
 
 
 // our lib
@@ -62,7 +63,7 @@ static inline double fmt_comm(uint64_t bytes) {
 // ---------------------------- test main --------------------------
 int main() {
     // parameter
-    uint64_t n          = (1 << 12);        // set size
+    uint64_t n          = (1 << 20);        // set size
     uint64_t inter      = (1 << 11);         // intersection size
     // prepare seeds
     PRNG commPrng(block(123456));
@@ -151,13 +152,17 @@ int main() {
             uint64_t okvs_w = w;
             double okvs_e = okvs_exp;
             uint64_t okvs_m = std::ceil(okvs_e * okvs_n);
-            OKVSBK okvs(okvs_n, okvs_w, okvs_e, okvsSeed_w, okvsSeed_pos);
+            // OKVSBK okvs(okvs_n, okvs_w, okvs_e, okvsSeed_w, okvsSeed_pos);
+            volePSI::Baxos okvs;
+            okvs.init(3 * n, 1 << 14, 3, 40, volePSI::PaxosParam::GF128, AllOneBlock);
+            okvs_m = okvs.size();
             vector<block> recver_p(okvs_m);
             sync_wait(chl.recv(recver_p));
 
             // compute r'
             vector<block> rr(cuco_sz);
-            okvs.DecodeOtherP(cuco_tab, rr, recver_p);
+            okvs.decode<block>(cuco_tab, rr, recver_p);
+            // okvs.DecodeOtherP(cuco_tab, rr, recver_p);
 
             t1 = std::chrono::high_resolution_clock::now(); 
             c1 = chl.bytesSent() + chl.bytesReceived();
@@ -286,10 +291,15 @@ int main() {
             uint64_t okvs_n = 3*n;
             uint64_t okvs_w = w;
             double okvs_e = okvs_exp;
-            OKVSBK okvs(okvs_n, okvs_w, okvs_e, okvsSeed_w, okvsSeed_pos);
-            okvs.Encode(okvs_key, okvs_value);
+            // OKVSBK okvs(okvs_n, okvs_w, okvs_e, okvsSeed_w, okvsSeed_pos);
+            // okvs.Encode(okvs_key, okvs_value);
 
-            vector<block> p = okvs.getP();
+            // vector<block> p = okvs.getP();
+            volePSI::Baxos okvs;
+            okvs.init(okvs_n, 1 << 14, 3, 40, volePSI::PaxosParam::GF128, AllOneBlock);
+            uint64_t okvs_m = okvs.size();
+            std::vector<block> p(okvs_m);
+            okvs.solve<block>(okvs_key, okvs_value, p);
             sync_wait(chl.send(p));
             
             t1 = std::chrono::high_resolution_clock::now(); 

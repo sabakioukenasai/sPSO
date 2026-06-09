@@ -12,6 +12,7 @@
 #include <libOTe/Tools/CoeffCtx.h>
 #include <libOTe/Vole/Silent/SilentVoleSender.h>
 #include <libOTe/Vole/Silent/SilentVoleReceiver.h>
+#include <volePSI/Paxos.h>
 
 #include "okvsbk.h"
 #include "galois128.h"
@@ -49,7 +50,8 @@ public:
 
     VecB W;                      // VOLE sender output W
     std::vector<block> WW;       // WW = delta * pp + W (p-vector for Decode)
-    std::unique_ptr<OKVSBK> okvs;
+    // std::unique_ptr<OKVSBK> okvs;
+    std::unique_ptr<volePSI::Baxos> okvs;
     std::shared_ptr<coproto::Socket> chl;
 
     OprfStatus stat_ = OprfStatus::Uninit;
@@ -89,7 +91,9 @@ public:
     VecB V;
     VecB pp;
 
-    std::unique_ptr<OKVSBK> okvs;
+    // std::unique_ptr<OKVSBK> okvs;
+    // volePSI::Baxos okvs;
+    std::unique_ptr<volePSI::Baxos> okvs;
     std::shared_ptr<coproto::Socket> chl;
 
     OprfStatus stat_ = OprfStatus::Uninit;

@@ -100,6 +100,26 @@ cd out/build/linux
 cmake --install . --prefix $(pwd)/../../../../install
 ```
 
+### volePSI
+
+1. Download `volePSI`
+```bash
+cd external
+git clone https://github.com/ladnir/volepsi.git
+```
+
+2. Build
+```bash
+cd volepsi
+python3 build.py -DVOLE_PSI_ENABLE_BOOST=ON -DCOPROTO_ENABLE_BOOST=ON -DCMAKE_CXX_FLAGS="-march=native"
+```
+
+3. Install
+```bash
+cd out/build/linux
+cmake --install . --prefix $(pwd)/../../../../install
+```
+
 ### Our code
 
 Once all dependencies are prepared, compiling our code follows the standard CMake workflow. The build process automatically detects the external libraries installed in `external/install`. After running `cmake` and `make`, the resulting binaries include both the protocol implementations and the benchmark tools used to evaluate them.

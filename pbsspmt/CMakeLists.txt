@@ -10,6 +10,7 @@ target_link_libraries(pbsspmt PUBLIC
     oc::libOTe
     oc::cryptoTools
     blake3
+    visa::volePSI
 )
 
 target_include_directories(pbsspmt PUBLIC

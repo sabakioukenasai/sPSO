@@ -1,10 +1,14 @@
 #include "oprf.h"
+#include <cryptoTools/Common/block.h>
+#include <cryptoTools/Crypto/AES.h>
 #include <macoro/sync_wait.h>
 #include <iostream>
 #include <cmath>
+#include <memory>
 #include <stdexcept>
 #include <iomanip>
 #include <sstream>
+#include <volePSI/Paxos.h>
 
 using namespace oprf;
 
@@ -21,18 +25,22 @@ void OprfSender::init(uint64_t n_, uint64_t w_, double e_, std::shared_ptr<copro
     n = n_;
     w = w_;
     e = e_;
-    m = static_cast<uint64_t>(std::ceil(static_cast<double>(n) * e));
+    // m = static_cast<uint64_t>(std::ceil(static_cast<double>(n) * e));
     chl = chl_;
 
     // init PRNG and seeds
     commPrng.SetSeed(prngSeed);
     okvsSeed_w = commPrng.get();
     okvsSeed_pos = commPrng.get();
-    hash1 = commPrng.get();
-    hash2 = commPrng.get();
+    // hash1 = commPrng.get();
+    // hash2 = commPrng.get();
 
     // initialize OKVS
-    okvs = std::make_unique<OKVSBK>(n, w, e, okvsSeed_w, okvsSeed_pos);
+    // okvs = std::make_unique<OKVSBK>(n, w, e, okvsSeed_w, okvsSeed_pos);
+    okvs = std::make_unique<volePSI::Baxos>();
+    okvs->init(n, 1 << 14, 3, 40, volePSI::PaxosParam::GF128, AllOneBlock);
+
+    m = okvs->size();
 
     // allocate vectors
     W.resize(m);
@@ -45,18 +53,22 @@ void OprfSender::init(OKVSParam param, std::shared_ptr<coproto::Socket> chl_, bl
     n = param.n;
     w = param.w;
     e = param.e;
-    m = static_cast<uint64_t>(std::ceil(static_cast<double>(n) * e));
+    // m = static_cast<uint64_t>(std::ceil(static_cast<double>(n) * e));
     chl = chl_;
 
     // init PRNG and seeds
     commPrng.SetSeed(prngSeed);
     okvsSeed_w = commPrng.get();
     okvsSeed_pos = commPrng.get();
-    hash1 = commPrng.get();
-    hash2 = commPrng.get();
+    // hash1 = commPrng.get();
+    // hash2 = commPrng.get();
 
     // initialize OKVS
-    okvs = std::make_unique<OKVSBK>(n, w, e, okvsSeed_w, okvsSeed_pos);
+    // okvs = std::make_unique<OKVSBK>(n, w, e, okvsSeed_w, okvsSeed_pos);
+    okvs = std::make_unique<volePSI::Baxos>();
+    okvs->init(n, 1 << 14, 3, 40, volePSI::PaxosParam::GF128, AllOneBlock);
+
+    m = okvs->size();
 
     // allocate vectors
     W.resize(m);
@@ -66,6 +78,7 @@ void OprfSender::init(OKVSParam param, std::shared_ptr<coproto::Socket> chl_, bl
 }
 
 void OprfSender::run() {
+    // m = okvs->size();
     if (stat_ == Uninit) throw std::runtime_error("OprfSender::run called before init");
     // 1. receive okvs encode status from receiver
     bool okvs_ok = false;
@@ -90,7 +103,8 @@ void OprfSender::run() {
     #pragma omp parallel for schedule(static)
     #endif
     for (uint64_t i = 0; i < m; ++i) {
-        WW[i] = ((Galois128(delta) * pp_local[i]) + W[i]).get<block>(0);
+        // WW[i] = ((Galois128(delta) * pp_local[i]) + W[i]).get<block>(0);
+        WW[i] = delta.gf128Mul(pp_local[i]) ^ W[i];
     }
 
     // mark WW ready
@@ -108,14 +122,18 @@ void OprfSender::eval(const std::vector<block>& in, std::vector<block>& out) {
 
     // seeds = DecodeOtherP(in, WW)
     std::vector<block> seeds(in.size());
-    okvs->DecodeOtherP(in, seeds, WW);
+    okvs->decode<block>(in, seeds, WW);
+  
+    // okvs->DecodeOtherP(in, seeds, WW);
 
     #ifdef HAVE_OPENMP
     #pragma omp parallel for schedule(static)
     #endif
     for (size_t i = 0; i < in.size(); ++i) {
-        seeds[i] = (Galois128(delta) * HashToBlock(in[i], hash1) + seeds[i]).get<block>(0);
-        out[i] = HashToBlock(in[i], seeds[i] ^ hash2);
+        // seeds[i] = (Galois128(delta) * HashToBlock(in[i], hash1) + seeds[i]).get<block>(0);
+        seeds[i] ^= delta.gf128Mul(mAesFixedKey.hashBlock(in[i]));
+        // out[i] = HashToBlock(in[i], seeds[i] ^ hash2);
+        out[i] = mAesFixedKey.hashBlock(in[i] ^ seeds[i]);
     }
 
     stat_ = OprfStatus::Evaluated;
@@ -138,7 +156,10 @@ void OprfRecver::init(uint64_t n_, uint64_t w_, double e_, std::shared_ptr<copro
     hash1 = commPrng.get();
     hash2 = commPrng.get();
 
-    okvs = std::make_unique<OKVSBK>(n, w, e, okvsSeed_w, okvsSeed_pos);
+    // okvs = std::make_unique<OKVSBK>(n, w, e, okvsSeed_w, okvsSeed_pos);
+    okvs = std::make_unique<volePSI::Baxos>();
+    okvs->init(n, 1ull << 14, 3, 40, volePSI::PaxosParam::GF128, AllOneBlock);
+    m = okvs->size();
 
     U.resize(m);
     V.resize(m);
@@ -160,7 +181,10 @@ void OprfRecver::init(OKVSParam param, std::shared_ptr<coproto::Socket> chl_, bl
     hash1 = commPrng.get();
     hash2 = commPrng.get();
 
-    okvs = std::make_unique<OKVSBK>(n, w, e, okvsSeed_w, okvsSeed_pos);
+    // okvs = std::make_unique<OKVSBK>(n, w, e, okvsSeed_w, okvsSeed_pos);
+    okvs = std::make_unique<volePSI::Baxos>();
+    okvs->init(n, 1ull << 14, 3, 40, volePSI::PaxosParam::GF128, AllOneBlock);
+    m = okvs->size();
 
     U.resize(m);
     V.resize(m);
@@ -182,10 +206,14 @@ void OprfRecver::run(const std::vector<block>& keys, std::vector<block>& prf_val
     #pragma omp parallel for schedule(static)
     #endif
     for (uint64_t i = 0; i < (uint64_t)size; ++i) {
-        vals[i] = HashToBlock(keys[i], this->hash1);
+        // vals[i] = HashToBlock(keys[i], this->hash1);
+        vals[i] = mAesFixedKey.hashBlock(keys[i]);
     }
 
-    bool okvs_ok = okvs->Encode(keys, vals);
+    // bool okvs_ok = okvs->Encode(keys, vals);
+    bool okvs_ok = 1;
+    std::vector<block> p(okvs->size());  
+    okvs->solve<block>(keys, vals, p);
     macoro::sync_wait(chl->send(okvs_ok));
     if (!okvs_ok) throw std::runtime_error("OKVS encode failed");
 
@@ -195,7 +223,7 @@ void OprfRecver::run(const std::vector<block>& keys, std::vector<block>& prf_val
     macoro::sync_wait(recv_task);
 
     // 3. send pp = p ^ U
-    auto p = okvs->getP();
+    // auto p = okvs->getP();
     #ifdef HAVE_OPENMP
     #pragma omp parallel for schedule(static)
     #endif
@@ -208,13 +236,15 @@ void OprfRecver::run(const std::vector<block>& keys, std::vector<block>& prf_val
     // 4. evaluate on keys
     vector<block> seeds(size);
     vector<block> V_vec(V.begin(), V.end());
-    okvs->DecodeOtherP(keys, seeds, V_vec);
+    okvs->decode<block>(keys, seeds, V_vec);
+    // okvs->DecodeOtherP(keys, seeds, V_vec);
 
     #ifdef HAVE_OPENMP
     #pragma omp parallel for schedule(static)
     #endif
     for (uint64_t i = 0; i < (uint64_t)size; ++i) {
-        prf_vals[i] = HashToBlock(keys[i], seeds[i] ^ hash2);
+        // prf_vals[i] = HashToBlock(keys[i], seeds[i] ^ hash2);
+        prf_vals[i] = mAesFixedKey.hashBlock(keys[i] ^ seeds[i]);
     }
 
     // receiver role finished

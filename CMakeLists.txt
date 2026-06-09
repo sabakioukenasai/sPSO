@@ -20,6 +20,7 @@ find_package(libOTe REQUIRED)
 find_package(cryptoTools REQUIRED)
 find_package(coproto REQUIRED)
 find_package(secureJoin REQUIRED)
+find_package(volePSI REQUIRED)
 
 # Disable auto fetching libOTe for secure-join
 set(FETCH_LIBOTE OFF CACHE BOOL "Disable auto fetching libOTe")
