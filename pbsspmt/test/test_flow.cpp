@@ -62,16 +62,16 @@ static inline double fmt_comm(uint64_t bytes) {
 // ---------------------------- test main --------------------------
 int main() {
     // parameter
-    uint64_t n          = (1 << 12);        // set size
-    uint64_t inter      = (1 << 11);         // intersection size
+    uint64_t n          = (1 << 20);        // set size
+    uint64_t inter      = (1 << 18);         // intersection size
     // prepare seeds
     PRNG commPrng(block(123456));
     block setGenSeed = commPrng.get();
     block cuckooSeed = commPrng.get();
     uint64_t cuckooDummy = commPrng.get();
     block oprfSeed = commPrng.get();
-    block okvsSeed_w = commPrng.get();
-    block okvsSeed_pos = commPrng.get();
+    uint8_t okvsSeed_w[BLAKE3_KEY_LEN];
+    commPrng.get(okvsSeed_w, BLAKE3_KEY_LEN);
     PRNG otPrng(sysRandomSeed());
 
     // std::cout << "=================== Test start ===================" << std::endl;
@@ -91,8 +91,8 @@ int main() {
 
     // set parameter
     double cuckoo_exp = CUCKOO_EXPANSION;   // default cuckoo table expansion rate = 1.22
-    double okvs_exp   = 1.15;               // defaule okvs structure expansion rate = 1.15
-    const uint64_t w  = 152;                // safe okvs row length for items < 2^22 [LTT+25]
+    double okvs_exp   = 1.30;               // defaule okvs structure expansion rate = 1.30
+    const uint64_t w  = 96;                // safe okvs row length for items < 2^22 [LTT+25]
     uint64_t cuco_sz  = std::ceil(cuckoo_exp * n);  // cuckoo table size
 
     // std::cout << "=============== parameters prepared ==============" << std::endl;
@@ -151,7 +151,7 @@ int main() {
             uint64_t okvs_w = w;
             double okvs_e = okvs_exp;
             uint64_t okvs_m = std::ceil(okvs_e * okvs_n);
-            OKVSBK okvs(okvs_n, okvs_w, okvs_e, okvsSeed_w, okvsSeed_pos);
+            OKVSBK okvs(okvs_n, okvs_w, okvs_e, okvsSeed_w, BLAKE3_KEY_LEN);
             vector<block> recver_p(okvs_m);
             sync_wait(chl.recv(recver_p));
 
@@ -286,7 +286,7 @@ int main() {
             uint64_t okvs_n = 3*n;
             uint64_t okvs_w = w;
             double okvs_e = okvs_exp;
-            OKVSBK okvs(okvs_n, okvs_w, okvs_e, okvsSeed_w, okvsSeed_pos);
+            OKVSBK okvs(okvs_n, okvs_w, okvs_e, okvsSeed_w, BLAKE3_KEY_LEN);
             okvs.Encode(okvs_key, okvs_value);
 
             vector<block> p = okvs.getP();

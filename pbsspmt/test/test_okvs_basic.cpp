@@ -38,9 +38,9 @@ int main() {
     std::cout << "[INFO] OpenMP not enabled\n";
 #endif
 
-    const int64_t n = (1 << 10);
-    const int64_t w = 144;
-    const double  e = 1.15;
+    const int64_t n = (1 << 20);
+    const int64_t w = 128;
+    const double  e = 1.30;
 
     std::mt19937_64 eng{233};
     std::vector<block> keys(n), vals(n);
@@ -57,10 +57,11 @@ int main() {
     }
 
     osuCrypto::PRNG prng(osuCrypto::block(0, 1));
-    osuCrypto::block seed_w = prng.get();
-    osuCrypto::block seed_pos = prng.get();
+    uint8_t okvsSeed_w[BLAKE3_KEY_LEN];
+    prng.get(okvsSeed_w, BLAKE3_KEY_LEN);
 
-    OKVSBK okvs(n, w, e, seed_w, seed_pos);
+    // OKVSBK okvs(n, w, e, seed_w, seed_pos);
+    OKVSBK okvs(n, w, e, okvsSeed_w, BLAKE3_KEY_LEN);
 
     auto t0 = std::chrono::high_resolution_clock::now();
     bool ok = okvs.Encode(keys, vals);

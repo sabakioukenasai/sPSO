@@ -14,6 +14,7 @@ target_link_libraries(pbsspmt PUBLIC
 
 target_include_directories(pbsspmt PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/external/install/include
     ${CMAKE_SOURCE_DIR}/external/install/include/secureJoin
 )
 

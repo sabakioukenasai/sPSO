@@ -1,7 +1,10 @@
 #include "oprf.h"
+#include <cryptoTools/Common/block.h>
+#include <cryptoTools/Crypto/AES.h>
 #include <macoro/sync_wait.h>
 #include <iostream>
 #include <cmath>
+#include <memory>
 #include <stdexcept>
 #include <iomanip>
 #include <sstream>
@@ -26,13 +29,12 @@ void OprfSender::init(uint64_t n_, uint64_t w_, double e_, std::shared_ptr<copro
 
     // init PRNG and seeds
     commPrng.SetSeed(prngSeed);
-    okvsSeed_w = commPrng.get();
-    okvsSeed_pos = commPrng.get();
-    hash1 = commPrng.get();
-    hash2 = commPrng.get();
+    commPrng.get(okvsSeed_w, BLAKE3_KEY_LEN);
+    // hash1 = commPrng.get();
+    // hash2 = commPrng.get();
 
     // initialize OKVS
-    okvs = std::make_unique<OKVSBK>(n, w, e, okvsSeed_w, okvsSeed_pos);
+    okvs = std::make_unique<OKVSBK>(n, w, e, okvsSeed_w, BLAKE3_KEY_LEN);
 
     // allocate vectors
     W.resize(m);
@@ -50,13 +52,12 @@ void OprfSender::init(OKVSParam param, std::shared_ptr<coproto::Socket> chl_, bl
 
     // init PRNG and seeds
     commPrng.SetSeed(prngSeed);
-    okvsSeed_w = commPrng.get();
-    okvsSeed_pos = commPrng.get();
-    hash1 = commPrng.get();
-    hash2 = commPrng.get();
+    commPrng.get(okvsSeed_w, BLAKE3_KEY_LEN);
+    // hash1 = commPrng.get();
+    // hash2 = commPrng.get();
 
     // initialize OKVS
-    okvs = std::make_unique<OKVSBK>(n, w, e, okvsSeed_w, okvsSeed_pos);
+    okvs = std::make_unique<OKVSBK>(n, w, e, okvsSeed_w, BLAKE3_KEY_LEN);
 
     // allocate vectors
     W.resize(m);
@@ -90,7 +91,8 @@ void OprfSender::run() {
     #pragma omp parallel for schedule(static)
     #endif
     for (uint64_t i = 0; i < m; ++i) {
-        WW[i] = ((Galois128(delta) * pp_local[i]) + W[i]).get<block>(0);
+        // WW[i] = ((Galois128(delta) * pp_local[i]) + W[i]).get<block>(0);
+        WW[i] = delta.gf128Mul(pp_local[i]) ^ W[i];
     }
 
     // mark WW ready
@@ -114,8 +116,10 @@ void OprfSender::eval(const std::vector<block>& in, std::vector<block>& out) {
     #pragma omp parallel for schedule(static)
     #endif
     for (size_t i = 0; i < in.size(); ++i) {
-        seeds[i] = (Galois128(delta) * HashToBlock(in[i], hash1) + seeds[i]).get<block>(0);
-        out[i] = HashToBlock(in[i], seeds[i] ^ hash2);
+        // seeds[i] = (Galois128(delta) * HashToBlock(in[i], hash1) + seeds[i]).get<block>(0);
+        // out[i] = HashToBlock(in[i], seeds[i] ^ hash2);
+        seeds[i] ^= delta.gf128Mul(mAesFixedKey.hashBlock(in[i]));
+        out[i] = mAesFixedKey.hashBlock(in[i] ^ seeds[i]);
     }
 
     stat_ = OprfStatus::Evaluated;
@@ -133,12 +137,11 @@ void OprfRecver::init(uint64_t n_, uint64_t w_, double e_, std::shared_ptr<copro
     // std::cout << "In oprf.init: n="<<n<<",m="<<m<<",e="<<e<<std::endl;
 
     commPrng.SetSeed(prngSeed);
-    okvsSeed_w = commPrng.get();
-    okvsSeed_pos = commPrng.get();
+    commPrng.get(okvsSeed_w, BLAKE3_KEY_LEN);
     hash1 = commPrng.get();
     hash2 = commPrng.get();
 
-    okvs = std::make_unique<OKVSBK>(n, w, e, okvsSeed_w, okvsSeed_pos);
+    okvs = std::make_unique<OKVSBK>(n, w, e, okvsSeed_w, BLAKE3_KEY_LEN);
 
     U.resize(m);
     V.resize(m);
@@ -155,12 +158,11 @@ void OprfRecver::init(OKVSParam param, std::shared_ptr<coproto::Socket> chl_, bl
     chl = chl_;
 
     commPrng.SetSeed(prngSeed);
-    okvsSeed_w = commPrng.get();
-    okvsSeed_pos = commPrng.get();
+    commPrng.get(okvsSeed_w, BLAKE3_KEY_LEN);
     hash1 = commPrng.get();
     hash2 = commPrng.get();
 
-    okvs = std::make_unique<OKVSBK>(n, w, e, okvsSeed_w, okvsSeed_pos);
+    okvs = std::make_unique<OKVSBK>(n, w, e, okvsSeed_w, BLAKE3_KEY_LEN);
 
     U.resize(m);
     V.resize(m);
@@ -182,7 +184,8 @@ void OprfRecver::run(const std::vector<block>& keys, std::vector<block>& prf_val
     #pragma omp parallel for schedule(static)
     #endif
     for (uint64_t i = 0; i < (uint64_t)size; ++i) {
-        vals[i] = HashToBlock(keys[i], this->hash1);
+        // vals[i] = HashToBlock(keys[i], this->hash1);
+        vals[i] = mAesFixedKey.hashBlock(keys[i]);
     }
 
     bool okvs_ok = okvs->Encode(keys, vals);
@@ -214,7 +217,8 @@ void OprfRecver::run(const std::vector<block>& keys, std::vector<block>& prf_val
     #pragma omp parallel for schedule(static)
     #endif
     for (uint64_t i = 0; i < (uint64_t)size; ++i) {
-        prf_vals[i] = HashToBlock(keys[i], seeds[i] ^ hash2);
+        // prf_vals[i] = HashToBlock(keys[i], seeds[i] ^ hash2);
+        prf_vals[i] = mAesFixedKey.hashBlock(keys[i] ^ seeds[i]);
     }
 
     // receiver role finished

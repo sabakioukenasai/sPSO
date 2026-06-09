@@ -41,8 +41,7 @@ enum OprfStatus {
 class OprfSender {
 public:
     PRNG commPrng;
-    block okvsSeed_w;
-    block okvsSeed_pos;
+    uint8_t okvsSeed_w[BLAKE3_KEY_LEN];
     block hash1;
     block hash2;
     block delta;
@@ -79,8 +78,7 @@ public:
 class OprfRecver {
 public:
     PRNG commPrng;
-    block okvsSeed_w;
-    block okvsSeed_pos;
+    uint8_t okvsSeed_w[BLAKE3_KEY_LEN];
     block hash1;
     block hash2;
 
