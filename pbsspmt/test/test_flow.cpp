@@ -167,6 +167,14 @@ int main() {
             total_comm += fmt_comm(c1 - c0);
 
             // invoke pseqt
+            // (1)、调用external/2PC_eq_cmp_v2/neweq.h:eq2 比较rr和r ---> res_0 = eq2(rr, r)
+            // (2)、调用 secureJoin secure-join/secure-join/Perm/AltModPerm.h 中的 generate 函数生成置换相关性
+            //      \rho(A) = B + C, 发送方有 (\rho C), 接收方有 (A, B)，A B C都是向量 (\rho C) = generate()
+            // 论文里的e^s = res_0, e^r = res_1, \pi 是发送方选择的一个随机置换（调用secureJoin生成一个随机置换）
+            // 发送方拿到向量 u，接收方拿到向量 v。
+            // (3)、把 R-OT 替换为 OT，先做PSI。X* = cuco_tab
+            //     当 u_i = 0时，msg_i^0 = 00000，msg_i^1 = cuco_tab[\pi(i)]
+            //     当 u_i = 1时，msg_i^1 = 00000，msg_i^0 = cuco_tab[\pi(i)]
 
             // simulate ot execution
             // 4. OT send
@@ -300,6 +308,13 @@ int main() {
             total_comm += fmt_comm(c1 - c0);
 
             // invoke pseqt
+            // (1)、调用external/2PC_eq_cmp_v2/neweq.h:eq2 比较rr和r ---> res_1 = eq2(rr, r)
+            // (2)、调用 secureJoin secure-join/secure-join/Perm/AltModPerm.h 中的 generate 函数生成置换相关性
+            //      \rho(A) = B + C, 发送方有 (\rho C), 接收方有 (A, B)，A B C都是向量 (A, B) = generate()
+            //      论文里的e^s = res_0, e^r = res_1, \pi 是发送方选择的一个随机置换（调用secureJoin生成一个随机置换）
+            //      发送方拿到向量 u，接收方拿到向量 v。
+            // (3)、把 R-OT 替换为 OT，先做PSI。用v_i作为OT的选择比特，如果拿到0000就丢掉，否则就放到交集里面
+            // vector Z;  Z.append(msg);
 
             // 4. OT receive
             t0 = std::chrono::high_resolution_clock::now(); 

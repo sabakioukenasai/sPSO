@@ -1,5 +1,7 @@
 build
-external
-main.cpp
+external/install
+external/libOTe/out
+external/secure-join/out
+/main.cpp
 .vscode
 .VSCodeCounter
