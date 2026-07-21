@@ -1,33 +1,23 @@
 #pragma once
 #include <stdint.h>
-#include <math.h>
+#include <bit>
+#include <ostream>
 #include "cryptoTools/Common/BitVector.h"
 #include "coproto/Socket/AsioSocket.h"
-#include <cryptoTools/Network/Channel.h>
 
 enum class Role {
     Sender,
     Receiver
 };
 
+// Portable, safe log2: returns floor(log2(x)), i.e. index of highest set bit.
+// Equivalent to BSR.  For x=0, returns 0 (callers should ensure x > 0).
 static inline uint32_t log2(uint32_t x) {
-	uint32_t y;
-	asm ( "\tbsr %1, %0\n"
-		: "=r"(y)
-		: "r" (x)
-	);
-	// return x == (1 << y) ? y : y + 1;
-	return y;
+	if (x == 0) return 0;
+	return static_cast<uint32_t>(std::bit_width(x) - 1);
 }
 
-// static inline uint32_t log2(uint32_t x) {
-// 	if (x == 0) return -1;
-//     return std::bit_width(x - 1);
-// }
-
 int getmod(int num);
-
-void shift(osuCrypto::BitVector &bits, int pos, int n);
 
 coproto::task<> sync(coproto::Socket& chl, Role role);
 

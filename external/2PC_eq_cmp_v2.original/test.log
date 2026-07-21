@@ -1,0 +1,12 @@
+=====offline start=====
+=====offline end=====
+=====online start=====
+=====online end=====
+Label            Time (ms)  diff (ms)
+__________________________________
+offline_end       281103.7  281103.720  **********
+online_start      281104.3      0.561  
+online_end        283767.9   2663.637  ******
+
+Offline Comm: 2576.392 MB
+Online Comm: 34.000 MB

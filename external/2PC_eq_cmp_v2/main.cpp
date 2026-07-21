@@ -12,16 +12,10 @@
 #include <coproto/Common/macoro.h>
 #include <iostream>
 
-using namespace std;
-using namespace osuCrypto;
-
 uint8_t Zp::p;
 
-// int p;
-Timer::timeUnit encode_start, encode_end;
-
 int main(int argc, char *argv[]) {
-  CLP cmd;
+  osuCrypto::CLP cmd;
   cmd.parse(argc, argv);
 
   Role role;
@@ -34,47 +28,42 @@ int main(int argc, char *argv[]) {
     role = Role::Sender;
   }
 
-  auto ip = cmd.getOr<string>("ip", "localhost:1213");
+  auto ip = cmd.getOr<std::string>("ip", "localhost:1213");
 
   auto num = cmd.getOr<int>("n", 10000);
   auto ell = cmd.getOr("l", 128);
 
   auto iscmp = cmd.getOr<int>("c", 0);
-  // vector<block> value(num);
 
   int sameNum = num / 2;
   if (iscmp == 0) {
-    vector<block> data(num, toBlock(0, 0));
+    std::vector<osuCrypto::block> data(num, osuCrypto::toBlock(0, 0));
     for (int i = 0; i < sameNum; ++i) {
-      data[i] = toBlock(0, i);
+      data[i] = osuCrypto::toBlock(0, i);
     }
     for (int i = sameNum; i < num; ++i) {
-      data[i] = sysRandomSeed();
+      data[i] = osuCrypto::sysRandomSeed();
     }
 
-    BitVector output(num);
+    osuCrypto::BitVector output(num);
     eq2<uint8_t> e(role, ip, 0, 0);
     e.run(data, output, ell);
-    // std::cout << "output================ " <<  output << "\n";
-    // for (auto it = output.begin(); it != output.end(); it++) {
-    //     cout << *it << endl;
-    // }
   } else if (iscmp == 1) {
-    vector<block> data(num, toBlock(0, 10));
+    std::vector<osuCrypto::block> data(num, osuCrypto::toBlock(0, 10));
     if (role == Role::Receiver) {
       for (int i = 0; i < num; ++i) {
-        data[i] = toBlock(0, (10 + i) % 16);
+        data[i] = osuCrypto::toBlock(0, (10 + i) % 16);
       }
     } else {
       for (int i = 0; i < num; ++i) {
-        data[i] = toBlock(0, (11 - i) % 16);
+        data[i] = osuCrypto::toBlock(0, (11 - i) % 16);
       }
     }
-    BitVector output(num);
+    osuCrypto::BitVector output(num);
     cmp1<uint8_t> c(role, ip, num, ell);
     c.run(data, output, ell);
-    for (auto it = output.begin(); it != output.end(); it++) {
-      cout << *it << endl;
+    for (auto it = output.begin(); it != output.end(); ++it) {
+      std::cout << *it << std::endl;
     }
   }
 

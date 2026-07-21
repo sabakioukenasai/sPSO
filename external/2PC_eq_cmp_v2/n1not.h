@@ -1,5 +1,4 @@
 #pragma once
-#include <omp.h>
 #include <cryptoTools/Crypto/PRNG.h>
 #include <cryptoTools/Common/block.h>
 #include "libOTe/TwoChooseOne/Iknp/IknpOtExtReceiver.h"
@@ -7,123 +6,112 @@
 #include "coproto/Socket/AsioSocket.h"
 #include "libOTe/Base/BaseOT.h"
 #include "cryptoTools/Common/BitVector.h"
-#include "cryptoTools/Crypto/PRNG.h"
 #include "coproto/Common/span.h"
-// #include "utils.h"
 
-using namespace std;
-using namespace osuCrypto;
-using namespace coproto;
+#include <vector>
+#include <array>
+#include <deque>
+#include <cstring>
 
 
 template<typename T>
 class NCN1OT {
 public:
-    // NCN1OT() = default;
-
-    NCN1OT(Role role, int nums, int length, IknpOtExtSender *sender, IknpOtExtReceiver *recver, AsioSocket &chl) {
-        this->nums = nums;
-        this->length = length;
-        this->sender = sender;
-        this->recver = recver;
-        this->chl = chl;
-        this->role = role;
-        
-        prg.SetSeed(sysRandomSeed());
-        // prg.SetSeed(toBlock(0, 0));
+    NCN1OT(Role role, int nums, int length, osuCrypto::IknpOtExtSender *sender, osuCrypto::IknpOtExtReceiver *recver, coproto::AsioSocket &chl)
+        : role(role), nums(nums), length(length), sender(sender), recver(recver), chl(chl) {
+        prg.SetSeed(osuCrypto::sysRandomSeed());
     }
 
-    ~NCN1OT() {
-        // delete ferretcot;
-    }
+    ~NCN1OT() = default;
 
     void send(T** data) {
-        int depth = log2(length) + 1;
+        int depth = static_cast<int>(log2(length)) + 1;
         int numOTs = nums * depth;
-        T **seeds = new T*[nums];
-        T *str0 = new T[nums*depth];
-        T *str1 = new T[nums*depth];
-        //#pragma omp parallel for schedule(dynamic)
+        std::vector<std::vector<T>> seeds(nums);
+        std::vector<T> str0(nums * depth);
+        std::vector<T> str1(nums * depth);
+
         for (int i = 0; i < nums; ++i) {
-            OblivSetup(length, seeds + i, str0+(i*depth), str1+(i*depth));
+            OblivSetup(length, seeds[i], str0.data() + i * depth, str1.data() + i * depth);
         }
 
-        send_ot(str0, str1, nums*depth);
+        send_ot(str0.data(), str1.data(), numOTs);
 
-        //#pragma omp parallel for
         for (int i = 0; i < nums; ++i) {
-            Expand(length, -1, *(seeds + i), data[i]);
+            Expand(length, static_cast<uint64_t>(-1), seeds[i], data[i]);
         }
     }
 
     void recv(T **data, uint8_t *epsilon) {
-        int depth = log2(length) + 1;
+        int depth = static_cast<int>(log2(length)) + 1;
         int numOTs = nums * depth;
-        // T **seeds = (T **)malloc(nums * sizeof(T *));
-        T **seeds = new T*[nums];
-        // bool *chosen_bit = new bool[nums*depth];
-        BitVector chosen_bit(nums*depth);
-        T *temp = new T[nums*depth];
-        
-        // PRNG prg;
-        prg.get(epsilon, nums*sizeof(epsilon[0]));
+        std::vector<std::vector<T>> seeds(nums);
+        osuCrypto::BitVector chosen_bit(numOTs);
+        std::vector<T> temp(numOTs);
 
+        // Generate unbiased epsilon values via rejection sampling.
+        // Simple prg.get + modulo would bias toward smaller values.
+        {
+            uint8_t threshold = 256 - (256 % length);
+            for (int i = 0; i < nums; ++i) {
+                uint8_t val;
+                do {
+                    prg.get(&val, 1);
+                } while (val >= threshold);
+                epsilon[i] = val % length;
+            }
+        }
 
-        // //#pragma omp parallel for
         for (int i = 0; i < nums; ++i) {
-            OblivSetup(length, seeds + i, NULL, NULL);
+            OblivSetup(length, seeds[i], nullptr, nullptr);
             int tmp_i = i * depth;
-            epsilon[i] = epsilon[i] % length;
             uint64_t x = epsilon[i];
-            for (int j = depth-1; j >= 0; --j) {
+            for (int j = depth - 1; j >= 0; --j) {
                 chosen_bit[tmp_i + j] = (x & 1) ^ 1;
                 x >>= 1;
             }
         }
-        
-        recv_ot(temp, chosen_bit, nums*depth);
-        
-        // //#pragma omp parallel for
+
+        recv_ot(temp.data(), chosen_bit, numOTs);
+
         for (int i = 0; i < nums; ++i) {
-            memcpy(*(seeds+i), temp+i*depth, depth*sizeof(T));
-            // for (int j = 0; j < depth; ++j) {
-            // }
-            Expand(length, epsilon[i], *(seeds + i), data[i]);
+            std::memcpy(seeds[i].data(), temp.data() + i * depth, depth * sizeof(T));
+            Expand(length, epsilon[i], seeds[i], data[i]);
         }
     }
+
 private:
-    // int party;
     Role role;
-    AsioSocket chl;
-    IknpOtExtSender *sender;
-    IknpOtExtReceiver *recver;
-    PRNG prg;
+    coproto::AsioSocket chl;
+    osuCrypto::IknpOtExtSender *sender;
+    osuCrypto::IknpOtExtReceiver *recver;
+    osuCrypto::PRNG prg;
 
     int nums, length;
-    void DLenPRG(T seed, T *out) {
-        block temp = toBlock(0, seed);
-        AES aes(temp);
-        block res, pt = AllOneBlock;
 
-        aes.ecbEncBlocks<1>(&AllOneBlock, &res);
-        memcpy(out, &res, 2*sizeof(T));
+    void DLenPRG(T seed, T *out) {
+        // Use both halves of the AES key for full 128-bit entropy.
+        // toBlock(0, seed) would leave the high 64 bits zero, weakening security.
+        osuCrypto::block temp = osuCrypto::toBlock(seed, ~seed);
+        osuCrypto::AES aes(temp);
+        osuCrypto::block res;
+
+        aes.ecbEncBlocks<1>(&osuCrypto::AllOneBlock, &res);
+        std::memcpy(out, &res, 2 * sizeof(T));
     }
 
-    void OblivSetup(uint64_t length, T **seeds, T *str0, T *str1) {
-        int depth = int(log2(length)) + 1;
+    void OblivSetup(uint64_t length, std::vector<T>& seed, T *str0, T *str1) {
+        int depth = static_cast<int>(log2(length)) + 1;
         if (role == Role::Sender) {
-            *seeds = new T;
-
-            // generate root
-            prg.get(*seeds, 1);
-            // preparing data for the following ote
-            memset(str0, 0x00, depth * sizeof(T));
-            memset(str1, 0x00, depth * sizeof(T));
-
-            PrepareCorrelation(0, depth, **seeds, str0, str1);
+            seed.resize(1);
+            prg.get(seed.data(), 1);
+            if (str0 && str1) {
+                std::memset(str0, 0x00, depth * sizeof(T));
+                std::memset(str1, 0x00, depth * sizeof(T));
+                PrepareCorrelation(0, depth, seed[0], str0, str1);
+            }
         } else {
-            *seeds = new T[depth];
-            // parse input i to bool vector
+            seed.resize(depth);
         }
     }
 
@@ -131,11 +119,11 @@ private:
         T next_seeds[2];
         DLenPRG(seed, next_seeds);
 
-        if (cur_depth == depth - 1) {  
-            if (index < length)
-            v[index] = next_seeds[0];
-            if (index + 1 < length)
-            v[index + 1] = next_seeds[1];
+        if (cur_depth == depth - 1) {
+            if (index < static_cast<int>(length))
+                v[index] = next_seeds[0];
+            if (index + 1 < static_cast<int>(length))
+                v[index + 1] = next_seeds[1];
             return;
         }
 
@@ -144,83 +132,81 @@ private:
         SimpleExpand(cur_depth + 1, depth, index + offset, next_seeds[1], v);
     }
 
-    int CheckOnPath(T x, T y) {
-        return x==y;
-    }
-
-    void PunctureExpand(int depth, uint64_t x, T *seeds, T *v) {
-        int size = 0;
+    // GGM puncturable PRF tree expansion for the Receiver.
+    // Uses a parallel deque<bool> to track punctured (placeholder) nodes instead of
+    // relying on a magic sentinel value (0), which is a valid PRG output.
+    // (The old CheckOnPath(T x, T y) { return x == y; } was removed as it compared
+    // against the 0 sentinel, risking a 1/2^64 collision with real PRG outputs.)
+    void PunctureExpand(int depth, uint64_t x, const T *seeds, T *v) {
         int cur_depth = 1;
 
-        bool bits[depth];
-
-        T seed, agg_mask;
+        std::vector<bool> bits(depth);
+        T agg_mask;
         T next_seeds[2];
 
+        // q holds tree node values; punctured[i] is true when q[i] is a placeholder
+        // for a punctured node (its value is ignored).
         std::deque<T> q;
+        std::deque<bool> punctured;
 
-        for (int i = depth - 1; i >= 0 ; i--) {
+        for (int i = depth - 1; i >= 0; --i) {
             bits[i] = (x & 1) ^ 1;
             x >>= 1;
         }
 
-        int path = bits[0];
-        
+        int path = bits[0] ? 1 : 0;
+
+        // Root: one punctured placeholder, one real seed.
         if (bits[0]) {
-            q.push_back(0);
-            q.push_back(*seeds);
+            q.push_back(0);       punctured.push_back(true);
+            q.push_back(seeds[0]); punctured.push_back(false);
         } else {
-            q.push_back(*seeds);
-            q.push_back(0);
+            q.push_back(seeds[0]); punctured.push_back(false);
+            q.push_back(0);        punctured.push_back(true);
         }
 
         while (cur_depth < depth) {
-            size = q.size();
+            std::size_t size = q.size();
             agg_mask = 0;
-            // process each layer
-            for (int i = 0; i < size; i++) {
-                seed = q.front();
+            for (std::size_t i = 0; i < size; ++i) {
+                T seed = q.front();
+                bool is_punctured = punctured.front();
                 q.pop_front();
-                if (!CheckOnPath(seed, 0)) { // not on-path node
-                    // evaluate prg and push directly
+                punctured.pop_front();
+
+                if (!is_punctured) {
                     DLenPRG(seed, next_seeds);
-                    q.push_back(next_seeds[0]);
-                    q.push_back(next_seeds[1]);
-                    
-                    // in addition, we need aggregate all seeds according to each layer's bit
-                    agg_mask ^= next_seeds[bits[cur_depth]];
+                    q.push_back(next_seeds[0]); punctured.push_back(false);
+                    q.push_back(next_seeds[1]); punctured.push_back(false);
+                    agg_mask ^= next_seeds[bits[cur_depth] ? 1 : 0];
                 } else {
-                    // 0 plays a placeholder of punctured value
+                    // Punctured placeholder: insert correction seed and a new placeholder.
                     if (bits[cur_depth]) {
-                        q.push_back(0);
-                        q.push_back(seeds[cur_depth]);
+                        q.push_back(0);               punctured.push_back(true);
+                        q.push_back(seeds[cur_depth]); punctured.push_back(false);
                     } else {
-                        q.push_back(seeds[cur_depth]);
-                        q.push_back(0);
+                        q.push_back(seeds[cur_depth]); punctured.push_back(false);
+                        q.push_back(0);                punctured.push_back(true);
                     }
                 }
             }
-            // correct the seed 
-            path = ((path ^ 1) << 1) ^ bits[cur_depth];
+            path = ((path ^ 1) << 1) ^ (bits[cur_depth] ? 1 : 0);
             q[path] ^= agg_mask;
             cur_depth++;
         }
 
-        for (int i = 0; i < length && i < q.size(); i++) {
+        for (std::size_t i = 0; i < static_cast<std::size_t>(length) && i < q.size(); ++i) {
             v[i] = q[i];
         }
     }
 
-
-    void Expand(uint64_t length, uint64_t x, T *seeds, T *v) {
-        int depth = int(log2(length)) + 1;
-        // cout << "start expand" << v.size() << endl;
+    void Expand(uint64_t length, uint64_t x, const std::vector<T>& seeds, T *v) {
+        int depth = static_cast<int>(log2(length)) + 1;
         if (role == Role::Sender) {
-            SimpleExpand(0, depth, 0, *seeds, v);
+            SimpleExpand(0, depth, 0, seeds[0], v);
         } else {
-            PunctureExpand(depth, x, seeds, v);
+            PunctureExpand(depth, x, seeds.data(), v);
         }
-        // cout << "end expand" << endl;
     }
 
     void PrepareCorrelation(int cur_depth, int depth, T seed, T *str0, T *str1) {
@@ -237,43 +223,39 @@ private:
     }
 
     void send_ot(const T* data0, const T* data1, int64_t length) {
-        AlignedUnVector<std::array<block, 2>> data(length);
-        sync_wait(sender->send(data, prg, chl));
-        
-        T *pad1 = new T[2*length];
-        
-        ////#pragma omp parallel for
+        osuCrypto::AlignedUnVector<std::array<osuCrypto::block, 2>> data(length);
+        cp::sync_wait(sender->send(data, prg, chl));
+
+        std::vector<T> pad1(2 * length);
+
         for (int64_t i = 0; i < length; ++i) {
-            pad1[2*i] = *(T*)(data[i][0].data()) ^ data0[i];
-            pad1[2*i+1] = *(T*)(data[i][1].data()) ^ data1[i];
+            T m0, m1;
+            std::memcpy(&m0, data[i][0].data(), sizeof(T));
+            std::memcpy(&m1, data[i][1].data(), sizeof(T));
+            pad1[2*i] = m0 ^ data0[i];
+            pad1[2*i+1] = m1 ^ data1[i];
         }
-        
-        sync_wait(sync(chl, role));
-        coproto::span<T> a(pad1, 2*length);
-        sync_wait(chl.send(a));
-        
-        delete[] pad1;
-	}
 
-	void recv_ot(T* datar, const BitVector &r, int64_t length) {
-        vector<block> data(length);
+        cp::sync_wait(sync(chl, role));
+        coproto::span<T> a(pad1.data(), 2 * length);
+        cp::sync_wait(chl.send(a));
+    }
 
-        sync_wait(recver->receive(r, data, prg, chl));
+    void recv_ot(T* datar, const osuCrypto::BitVector &r, int64_t length) {
+        std::vector<osuCrypto::block> data(length);
 
-		T *res = new T[2*length];
-        sync_wait(sync(chl, role));
-        
-        coproto::span<T> a(res, 2*length);
-        
-        sync_wait(chl.recv(a));
-        
-        ////#pragma omp parallel for
-        for(int64_t i = 0; i < length; i+=8) {
-			for(int64_t j = 0; j < 8 and j < length-i; ++j) {
-                assert((2*(i+j)+r[i+j]) < (length*2));
-				datar[i+j] = res[2*(i+j)+r[i+j]] ^ *(T*)(data[i+j].data());
-			}
-		}
-        delete[] res;
-	}
+        cp::sync_wait(recver->receive(r, data, prg, chl));
+
+        std::vector<T> res(2 * length);
+        cp::sync_wait(sync(chl, role));
+
+        coproto::span<T> a(res.data(), 2 * length);
+        cp::sync_wait(chl.recv(a));
+
+        for (int64_t i = 0; i < length; ++i) {
+            T m;
+            std::memcpy(&m, data[i].data(), sizeof(T));
+            datar[i] = res[2 * i + r[i]] ^ m;
+        }
+    }
 };
