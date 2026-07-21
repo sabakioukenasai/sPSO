@@ -55,6 +55,13 @@ int main(int argc, char *argv[]) {
     BitVector output(num);
     eq2<uint8_t> e(role, ip, 0, 0);
     e.run(data, output, ell);
+
+    int show = std::min(num, 8);
+    std::string roleStr = (role == Role::Sender) ? "Sender" : "Receiver";
+    std::cout << "[" << roleStr << "] output bits (first " << show << "): ";
+    for (int i = 0; i < show; ++i)
+      std::cout << output[i];
+    std::cout << std::endl;
     // std::cout << "output================ " <<  output << "\n";
     // for (auto it = output.begin(); it != output.end(); it++) {
     //     cout << *it << endl;

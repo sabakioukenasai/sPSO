@@ -14,7 +14,7 @@ if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
     SET(CMAKE_BUILD_TYPE Release)
 endif()
 
-set(CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/external/install/")
+set(CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/../install/")
 #set(NO_SYSTEM_PATH true)
 #set(NO_CMAKE_SYSTEM_PATH true)
 find_package(libOTe REQUIRED)

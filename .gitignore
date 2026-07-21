@@ -2,6 +2,7 @@ build
 external/install
 external/libOTe/out
 external/secure-join/out
+external/2PC_eq_cmp_v2.original
 /main.cpp
 .vscode
 .VSCodeCounter

@@ -29,7 +29,7 @@ The repository is organized to clearly separate our own implementation from exte
   |-- blake3        // blake3 (submodule)
   |-- libOTe        // libOTe (submodule)
   |-- secure-join   // secure-join (submodule)
-  |-- 2PC_eq_cmp_v2 // 2PC equality/comparison protocols
+  |-- 2PC_eq_cmp // 2PC equality/comparison protocols (optimized)
 - build             // build directory
 ```
 
@@ -94,16 +94,22 @@ cd out/build/linux
 cmake --install . --prefix $(pwd)/../../../../install
 ```
 
-### 2PC_eq_cmp_v2
+### 2PC_eq_cmp
 
-The `2PC_eq_cmp_v2` directory contains our modified version of the two-party secure equality test and comparison protocols. It provides the `eq2<T>` and `cmp1<T>` template classes used in the PSO workflow.
+The `2PC_eq_cmp` directory contains our **performance-optimized** version of the two-party secure equality test and comparison protocols. Compared to the [original reference implementation](https://zenodo.org/records/17217396), we have applied the following optimizations:
 
-This library depends on libOTe (already built and installed in `external/install` as described above). The `CMAKE_PREFIX_PATH` in its `CMakeLists.txt` is pre-configured to look for libOTe under `${CMAKE_SOURCE_DIR}/external/install/`.
+- **Fixed-key AES PRG**: Replaced per-node AES key expansion with a single pre-keyed AES, eliminating ~100 million AES key schedules.
+- **Byte-level rotation & copy**: Replaced bit-by-bit operations with efficient byte-level `memcpy`-based implementations.
+- **Memory safety**: Replaced raw `new`/`delete` with `std::vector`, fixed heap buffer overflow when bit-length < 128.
+
+We recommend using this optimized version rather than the original 2PC_eq_cmp source. The original unmodified code is preserved at `external/2PC_eq_cmp_v2.original` for reference.
+
+This library depends on libOTe (already built and installed in `external/install` as described above).
 
 **Build standalone:**
 
 ```bash
-cd external/2PC_eq_cmp_v2
+cd external/2PC_eq_cmp
 mkdir build && cd build
 cmake ..
 cmake --build . --parallel
