@@ -2,97 +2,184 @@
 
 This project provides an experimental framework for evaluating leakage-free private set operations (PSO). The goal of the repository is to benchmark the performance of our protocols and implementation techniques, rather than to serve as a production-ready library. Users are encouraged to review the implementation carefully before integrating any components outside benchmarking or academic use.
 
-## Dependences -- Explanation
+> 中文文档见 [README.zh-CN.md](README.zh-CN.md).
+
+## Dependencies
 
 Our system is built on top of several cryptographic and parallel-computing libraries.
+
  - [secure-join](https://github.com/ladnir/secure-join.git) provides the implementation of permutation correlation generator (PermCG).
- - [libOTe](https://github.com/osu-crypto/libOTe.git) provide core primitives used in two-party computation and oblivious transfer.
+ - [libOTe](https://github.com/osu-crypto/libOTe.git) provides core primitives used in two-party computation and oblivious transfer.
  - [2PC_eq_cmp](https://zenodo.org/records/17217396) provides equality and comparison protocols used within our PSO workflow.
- - [Blake3](https://github.com/BLAKE3-team/BLAKE3.git) is included as a fast, modern hash function.
+ - [BLAKE3](https://github.com/BLAKE3-team/BLAKE3.git) is included as a fast, modern hash function.
+ - [libsodium](https://github.com/jedisct1/libsodium) supplies elliptic-curve and hashing primitives used by libOTe.
+ - [Boost](https://www.boost.org) is required by libOTe and secure-join.
  - [OpenMP](https://www.openmp.org) enables configurable multi-threading to improve performance on multi-core CPUs.
-These dependencies must be compiled and installed before building our own code, as they supply most of the foundational cryptographic operations used throughout the framework.
+
+All of these are built into `external/install`, which is used as the single
+installation prefix for the whole build. Nothing is taken from the system
+prefix, so a checkout produces the same binaries regardless of which versions
+the host distribution happens to ship.
+
+| Dependency | Pinned version | Reason |
+|---|---|---|
+| libOTe | `657f6da9` | Required for secure-join compatibility |
+| secure-join | `377ca63b` | Tested against the libOTe commit above |
+| libsodium | 1.0.19 | `crypto_scalarmult_noclamp`, used by cryptoTools, was added in 1.0.19 |
+| Boost | 1.86 | Built automatically by libOTe |
+
+### Supported platforms
+
+The build is verified on Linux (x86-64) with GCC 13 and CMake 3.28. Windows
+users are expected to build inside WSL2 rather than with MSVC.
+
+CPU requirements: SSE2, AVX2, PCLMUL and AES are needed. **AVX-512 is optional** —
+see [CPU features](#cpu-features-and-avx-512) for details.
 
 ## Code Structure
-The repository is organized to clearly separate our own implementation from external dependencies and build artifacts.
+
+The repository separates our own implementation from external dependencies and build artifacts.
+
  - The `pbsspmt` directory contains all source files, headers, and unit tests for our protocol and benchmarking framework.
  - The `external` directory holds third-party libraries along with an `install` subfolder that acts as a custom installation prefix for all dependencies.
+ - The `build_deps.sh` script builds every dependency into `external/install`.
  - The `build` directory is where CMake generates configuration files and where compilation outputs are stored.
-```bash
+
+```
 - README.md
+- README.zh-CN.md      // Chinese translation
 - CMakeLists.txt
-- pbsspmt           // our code
-  |-- src           // source code
-  |-- include       // headers
-  |-- test          // test code
-- external          // external lib
-  |-- install       // external lib install path
-  |-- blake3        // blake3 (submodule)
-  |-- libOTe        // libOTe (submodule)
-  |-- secure-join   // secure-join (submodule)
-  |-- 2PC_eq_cmp // 2PC equality/comparison protocols (optimized)
-- build             // build directory
+- build_deps.sh        // builds all dependencies into external/install
+- pbsspmt              // our code
+  |-- src              // source code
+  |-- include          // headers
+  |-- test             // test code
+- external             // external libs
+  |-- install          // installation prefix for all dependencies (generated)
+  |-- .deps            // downloaded libsodium sources (generated)
+  |-- blake3           // blake3 (submodule)
+  |-- libOTe           // libOTe (submodule)
+  |-- secure-join      // secure-join (submodule)
+  |-- 2PC_eq_cmp       // 2PC equality/comparison protocols (optimized)
+  |-- 2PC_eq_cmp_v2.original // original reference implementation
+- build                // build directory (generated)
 ```
 
 ## Build
 
-Before building our framework, all external dependencies must be configured and installed correctly. Most dependencies are managed as git submodules. The instructions in this section explain how to initialize them and compile each library with the required options. After the dependencies are installed into `external/install`, you can build our code using CMake as usual.
+### Quick start
 
 ```bash
-mkdir -p external/install
+git clone --recursive git@github.com:sabakioukenasai/sPSO.git
+cd sPSO
+
+# 1. Build every third-party dependency into external/install
+./build_deps.sh
+
+# 2. Build the project itself
+mkdir -p build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j"$(nproc)"
 ```
 
-### Getting the source code (submodules)
+`build_deps.sh` is idempotent: re-running it skips components that are already
+installed. Use `./build_deps.sh --clean` to rebuild everything from scratch, and
+`--jobs N` to limit parallelism. Full output is also written to `build_deps.log`.
 
-libOTe, Blake3, and secure-join are managed as git submodules. After cloning this repository, initialize and update them:
+#### System packages
+
+Only the build toolchain and OpenMP come from the system:
+
+```bash
+sudo apt install -y build-essential cmake git \
+                    libomp-dev autoconf automake libtool
+```
+
+Boost and libsodium are compiled into `external/install` by `build_deps.sh`, so
+the distribution's `libboost-all-dev` and `libsodium-dev` packages are **not**
+required — and not used, even if present.
+
+### Manual build
+
+The steps below describe what `build_deps.sh` does, for users who prefer to run
+each stage by hand.
+
+#### 1. Submodules
 
 ```bash
 git submodule update --init --recursive
+
+# libOTe must be on the exact commit secure-join expects
+cd external/libOTe
+git fetch origin
+git checkout 657f6da90bff5774a2d01c824e997572d5e8ba00
+git submodule update --init --recursive
+cd ../..
+
+cd external/secure-join
+git fetch origin
+git checkout 377ca63b9d8f4f6aede0d3a2e3d9078973a3ee10
+git submodule update --init --recursive
+cd ../..
 ```
 
-> **Note for libOTe**: Our code requires a specific commit of libOTe (`657f6da90bff5774a2d01c824e997572d5e8ba00`) for compatibility with secure-join. After `git submodule update --init`, enter the libOTe directory and check out the required version:
-> ```bash
-> cd external/libOTe
-> git fetch origin
-> git checkout 657f6da90bff5774a2d01c824e997572d5e8ba00
-> cd ../..
-> ```
+#### 2. libsodium
 
-### OpenMP
+`cryptoTools` calls `crypto_scalarmult_noclamp`, which does not exist before
+libsodium 1.0.19. Ubuntu 24.04 ships 1.0.18, so build 1.0.19 into
+`external/install`:
 
-[OpenMP](https://www.openmp.org) is used to parallelize computationally expensive tasks in our implementation. You may need to install or enable OpenMP support depending on your compiler and operating system. The official OpenMP documentation provides detailed installation steps. Once installed, the number of threads can be controlled dynamically via the `OMP_NUM_THREADS` environment variable during testing.
+```bash
+curl -fsSL -o libsodium-1.0.19.tar.gz \
+  https://github.com/jedisct1/libsodium/releases/download/1.0.19-RELEASE/libsodium-1.0.19.tar.gz
+tar xzf libsodium-1.0.19.tar.gz
+cd libsodium-stable
+./configure --prefix="$(pwd)/../../external/install" --enable-shared --disable-static
+make -j"$(nproc)" && make install
+```
 
-### libOTe
+#### 3. libOTe
 
-We rely heavily on `libOTe` for oblivious transfer operations and other low-level cryptographic primitives. Because `secure-join` requires compatibility with a specific commit of `libOTe`, we explicitly instruct users to check out the required version (see the note above). The build script `build.py` simplifies the compilation process by enabling all necessary modules, including **circuits**, **AES**, **SSE**, **silent VOLE**, and **Boost** support. Finally, `libOTe` is installed into the unified `external/install` directory to make integration straightforward.
-
-1. Build libOTe
 ```bash
 cd external/libOTe
-python build.py -DENABLE_CIRCUITS=ON -DENABLE_BOOST=ON -DENABLE_SODIUM=ON -DENABLE_SSE=ON -DENABLE_AES=ON -DCOPROTO_ENABLE_BOOST=ON -DENABLE_ALL_OT=ON -DENABLE_SILENT_VOLE=ON -DCMAKE_CXX_FLAGS="-march=native"
-```
+python3 build.py \
+  -DENABLE_CIRCUITS=ON -DENABLE_BOOST=ON -DENABLE_SODIUM=ON \
+  -DSODIUM_MONTGOMERY=OFF \
+  -DENABLE_SSE=ON -DENABLE_AES=ON -DCOPROTO_ENABLE_BOOST=ON \
+  -DENABLE_ALL_OT=ON -DENABLE_SILENT_VOLE=ON \
+  -DCMAKE_PREFIX_PATH="$(pwd)/../install" \
+  -DCMAKE_CXX_FLAGS="-march=native"
 
-2. Install libOTe
-Install `libOTe` to `external/install`
-```bash
 cd out/build/linux
-cmake --install . --prefix $(pwd)/../../../../install
+cmake --install . --prefix "$(pwd)/../../../../install"
 ```
 
-### secure-join
+`-DSODIUM_MONTGOMERY=OFF` matters: cryptoTools defaults this option to `ON` and
+force-overrides the cache, which pulls in Montgomery-curve code calling
+`crypto_scalarmult_noclamp`. Nothing in this project needs it, so keep it off.
 
-secure-join provides efficient permutation correlation generator (PermCG) construction blocks that we integrate into our benchmarking environment. After initializing the submodule, you must compile it with **Boost** and the required **sodium** configuration flags.
+`-DCMAKE_PREFIX_PATH` pointing at `external/install` makes the build pick up the
+libsodium and Boost built there rather than the system copies.
 
-1. Build
+#### 4. secure-join
+
 ```bash
 cd external/secure-join
-python build.py -D SODIUM_MONTGOMERY=false -D COPROTO_ENABLE_BOOST=ON
+cmake -S . -B out/build/linux \
+  -D CMAKE_BUILD_TYPE=Release \
+  -D SODIUM_MONTGOMERY=false \
+  -D COPROTO_ENABLE_BOOST=ON \
+  -DFETCH_LIBOTE=OFF \
+  -DSECUREJOIN_THIRDPARTY_DIR="$(pwd)/../install" \
+  -DCMAKE_PREFIX_PATH="$(pwd)/../install"
+
+cmake --build out/build/linux --parallel "$(nproc)"
+cd out/build/linux
+cmake --install . --prefix "$(pwd)/../../../../install"
 ```
 
-2. Install
-```bash
-cd out/build/linux
-cmake --install . --prefix $(pwd)/../../../../install
-```
+`-DFETCH_LIBOTE=OFF` reuses the libOTe installed above. Without it, secure-join
+clones and builds a private copy of libOTe under its own `out/` directory.
 
 ### 2PC_eq_cmp
 
@@ -104,7 +191,10 @@ The `2PC_eq_cmp` directory contains our **performance-optimized** version of the
 
 We recommend using this optimized version rather than the original 2PC_eq_cmp source. The original unmodified code is preserved at `external/2PC_eq_cmp_v2.original` for reference.
 
-This library depends on libOTe (already built and installed in `external/install` as described above).
+This library depends on libOTe (already built and installed in `external/install`
+as described above). The `CMAKE_PREFIX_PATH` in its `CMakeLists.txt` is
+pre-configured to look for libOTe under `${CMAKE_SOURCE_DIR}/external/install/`.
+It provides the `eq2<T>` and `cmp1<T>` template classes used in the PSO workflow.
 
 **Build standalone:**
 
@@ -146,35 +236,58 @@ cmake --build . --parallel
 | `-c <type>` | `0` = equality test, `1` = comparison |
 | `-ip <addr>` | IP address (default: `localhost:1213`) |
 
-> **Note**: In the main PSO workflow (`pbsspmt/test/test_flow.cpp`), the `eq2` protocol from `neweq.h` is included directly rather than linked as a separate library. The standalone build above is useful for testing the equality/comparison protocols independently.
+> **Note**: In the main PSO workflow (`pbsspmt/test/test_flow.cpp`), the `eq2`
+> protocol from `neweq.h` is included directly rather than linked as a separate
+> library. The standalone build above is useful for testing the
+> equality/comparison protocols independently.
 
 ### Our code
 
-Once all dependencies are prepared, compiling our code follows the standard CMake workflow. The build process automatically detects the external libraries installed in `external/install`. After running `cmake` and `make`, the resulting binaries include both the protocol implementations and the benchmark tools used to evaluate them.
+The top-level `CMakeLists.txt` adds `external/install` to `CMAKE_PREFIX_PATH`
+and presets `SODIUM_LIBRARIES` / `SODIUM_INCLUDE_DIRS` to the copies found there,
+so `find_package` cannot silently fall back to a system libsodium. If the
+bundled copy is missing, the configure step prints a warning naming the system
+library it fell back to.
 
 ```bash
-mkdir build && cd build
-cmake ..
-make -j
+mkdir -p build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j"$(nproc)"
 ```
+
+### CPU features and AVX-512
+
+`external/blake3` is compiled with SSE2/AVX2 unconditionally and with AVX-512
+only for the single file that needs it. Some recent consumer CPUs (for example
+Intel Arrow Lake) do not implement AVX-512 at all. GCC will still compile
+AVX-512 code for such a CPU without any diagnostic, but **executing** it raises
+`SIGILL`.
+
+Because of that, the top-level `CMakeLists.txt` probes CPU support at configure
+time using `__builtin_cpu_supports`, which reads CPUID without executing any
+AVX-512 instruction. A compile-only check is not sufficient here — CMake's
+`check_cxx_source_runs` can report success on CPUs where AVX-512 actually
+faults. When the CPU lacks AVX-512, BLAKE3's runtime dispatch simply never
+selects that path.
+
+If you see `***Exception: Illegal` from `ctest`, this is the first thing to
+suspect.
 
 ## Test
 
-The project includes unit tests and benchmarking tests located in the test directory. You can run all tests using CTest or execute specific tests by name. OpenMP thread counts can be set at runtime to evaluate how parallelization affects performance. This allows users to perform reproducible measurements under different computational settings.
+The unit and benchmark tests live in `pbsspmt/test`. Run them with CTest. The
+OpenMP thread count is set at runtime, which lets you measure how parallelization
+affects performance.
 
 ```bash
-# all test
-ctest -V
+cd build
 
-# OpenMP threads number = 4, run the specific test `workflow_test`
-OMP_NUM_THREADS=4 ctest -R "workflow_test" -V
+# all tests
+ctest --output-on-failure
+
+# a single test with 4 OpenMP threads
+OMP_NUM_THREADS=4 ctest -R workflow_test -V
 ```
 
-## LICENSE
-This project is licensed under the **Apache License 2.0**.
-You may use, distribute, and modify this software in accordance with the terms of the license.
-
-For more details, please refer to the full license text in the LICENSE file included in this repository, or visit:
-```arduino
-http://www.apache.org/licenses/LICENSE-2.0
-```
+Registered tests: `oprf_gf128_test`, `oprf_okvs_basic_test`, `oprf_test`,
+`cuckoo3_test`, `workflow_test`. A PermCG unit test is not currently provided.

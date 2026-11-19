@@ -1,0 +1,24 @@
+# Normalise line endings so a checkout behaves the same on Windows and Linux.
+# The previous setup used core.autocrlf=true, which made every text file appear
+# modified on Windows while producing no actual change.
+* text=auto eol=lf
+
+# Shell scripts must keep LF; a CRLF shebang breaks execution under Linux/WSL.
+*.sh text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+
+# Windows-only files keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binaries and archives are never converted.
+*.png binary
+*.jpg binary
+*.ico binary
+*.gz binary
+*.zip binary
+*.a binary
+*.so binary
+*.o binary

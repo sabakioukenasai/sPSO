@@ -1,8 +1,10 @@
 build
 external/install
+external/.deps
 external/libOTe/out
 external/secure-join/out
 external/2PC_eq_cmp_v2.original
 /main.cpp
 .vscode
 .VSCodeCounter
+build_deps.log
