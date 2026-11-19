@@ -7,11 +7,16 @@
 # happens to ship.
 #
 # Usage:
-#   ./build_deps.sh              # build what is missing
-#   ./build_deps.sh --clean      # wipe external/install and all build trees
-#   ./build_deps.sh --jobs 8     # limit parallelism (default: nproc)
+#   ./build_deps.sh                 # build what is missing (the normal path)
+#   ./build_deps.sh --jobs 8        # limit parallelism (default: nproc)
+#   ./build_deps.sh --clean         # wipe external/install and build trees,
+#                                   # then rebuild everything (asks first)
+#   ./build_deps.sh --clean --yes   # same, without the prompt
 #
-# The script is idempotent: components that are already installed are skipped.
+# The script is idempotent: components already installed are skipped, so
+# re-running it after a source change costs only a few seconds. Keep
+# external/install around -- a clean rebuild recompiles boost and libOTe and
+# takes on the order of half an hour.
 # =============================================================================
 set -euo pipefail
 
@@ -31,12 +36,14 @@ LIBSODIUM_VERSION="1.0.19"
 
 JOBS="$(nproc)"
 CLEAN=0
+ASSUME_YES=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --clean) CLEAN=1; shift ;;
+        --yes)   ASSUME_YES=1; shift ;;
         --jobs)  JOBS="$2"; shift 2 ;;
-        -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
 done
@@ -72,10 +79,26 @@ done
 
 if [[ $CLEAN -eq 1 ]]; then
     step "Cleaning previous builds"
-    info "removing external/install and dependency build trees"
+    # Removing these means recompiling boost and libOTe from scratch, which
+    # takes a long time. Say what is about to be lost and unless --yes was
+    # given, ask first.
+    for d in "$INSTALL_DIR" \
+             "$SCRIPT_DIR/external/libOTe/out" \
+             "$SCRIPT_DIR/external/secure-join/out"; do
+        [[ -e "$d" ]] && info "will remove: $d ($(du -sh "$d" 2>/dev/null | cut -f1))"
+    done
+    info "recompiling from scratch will take roughly 20-40 minutes"
+    if [[ $ASSUME_YES -ne 1 ]]; then
+        if [[ ! -t 0 ]]; then
+            die "--clean needs confirmation; re-run with --clean --yes for non-interactive use"
+        fi
+        read -r -p "    continue? [y/N] " reply
+        [[ "$reply" =~ ^[Yy]$ ]] || die "aborted, nothing was removed"
+    fi
     rm -rf "$INSTALL_DIR" \
            "$SCRIPT_DIR/external/libOTe/out" \
            "$SCRIPT_DIR/external/secure-join/out"
+    info "removed"
 fi
 
 mkdir -p "$INSTALL_DIR"

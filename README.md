@@ -82,8 +82,24 @@ make -j"$(nproc)"
 ```
 
 `build_deps.sh` is idempotent: re-running it skips components that are already
-installed. Use `./build_deps.sh --clean` to rebuild everything from scratch, and
-`--jobs N` to limit parallelism. Full output is also written to `build_deps.log`.
+installed and takes about two seconds. `--jobs N` limits parallelism, and full
+output is also written to `build_deps.log`.
+
+`--clean` wipes `external/install` and the dependency build trees and rebuilds
+from scratch. That recompiles Boost and libOTe and takes roughly 20–40 minutes,
+so it is only needed when you want to rule out a corrupted dependency tree.
+The script lists what it is about to delete and asks for confirmation;
+`--clean --yes` skips the prompt.
+
+Keep `external/install` between builds. The normal edit–compile–test loop is:
+
+```bash
+./build_deps.sh          # ~2 s, no-op when nothing changed
+cd build && make -j"$(nproc)" && OMP_NUM_THREADS=4 ctest
+```
+
+After editing sources in `pbsspmt/` you only need the second line; `build_deps.sh`
+matters again only when the submodules or the dependency build change.
 
 #### System packages
 

@@ -76,7 +76,18 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j"$(nproc)"
 ```
 
-`build_deps.sh` 具备幂等性：重复运行会跳过已安装的组件。使用 `./build_deps.sh --clean` 可从零重建全部依赖，`--jobs N` 可限制并行度。完整输出同时写入 `build_deps.log`。
+`build_deps.sh` 具备幂等性：重复运行会跳过已安装的组件，耗时约两秒。`--jobs N` 可限制并行度，完整输出同时写入 `build_deps.log`。
+
+`--clean` 会删除 `external/install` 与依赖构建目录并从头重建。该过程需重新编译 Boost 与 libOTe，耗时约 20 至 40 分钟，仅在需要排除依赖树损坏时才使用。脚本会列出即将删除的内容并请求确认，`--clean --yes` 可跳过确认。
+
+请在多次构建之间保留 `external/install`。常规的修改—编译—测试循环为：
+
+```bash
+./build_deps.sh          # 约 2 秒，无变化时不做任何事
+cd build && make -j"$(nproc)" && OMP_NUM_THREADS=4 ctest
+```
+
+修改 `pbsspmt/` 下的源码后只需执行第二行；只有在子模块或依赖构建发生变化时，才需要重新运行 `build_deps.sh`。
 
 #### 系统依赖
 
