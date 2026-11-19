@@ -60,8 +60,7 @@ The repository separates our own implementation from external dependencies and b
   |-- blake3           // blake3 (submodule)
   |-- libOTe           // libOTe (submodule)
   |-- secure-join      // secure-join (submodule)
-  |-- 2PC_eq_cmp       // 2PC equality/comparison protocols (optimized)
-  |-- 2PC_eq_cmp_v2.original // original reference implementation
+  |-- 2PC_eq_cmp_v2    // 2PC equality/comparison protocols
 - build                // build directory (generated)
 ```
 
@@ -181,25 +180,20 @@ cmake --install . --prefix "$(pwd)/../../../../install"
 `-DFETCH_LIBOTE=OFF` reuses the libOTe installed above. Without it, secure-join
 clones and builds a private copy of libOTe under its own `out/` directory.
 
-### 2PC_eq_cmp
+### 2PC_eq_cmp_v2
 
-The `2PC_eq_cmp` directory contains our **performance-optimized** version of the two-party secure equality test and comparison protocols. Compared to the [original reference implementation](https://zenodo.org/records/17217396), we have applied the following optimizations:
-
-- **Fixed-key AES PRG**: Replaced per-node AES key expansion with a single pre-keyed AES, eliminating ~100 million AES key schedules.
-- **Byte-level rotation & copy**: Replaced bit-by-bit operations with efficient byte-level `memcpy`-based implementations.
-- **Memory safety**: Replaced raw `new`/`delete` with `std::vector`, fixed heap buffer overflow when bit-length < 128.
-
-We recommend using this optimized version rather than the original 2PC_eq_cmp source. The original unmodified code is preserved at `external/2PC_eq_cmp_v2.original` for reference.
+The `2PC_eq_cmp_v2` directory contains our modified version of the two-party
+secure equality test and comparison protocols. It provides the `eq2<T>` and
+`cmp1<T>` template classes used in the PSO workflow.
 
 This library depends on libOTe (already built and installed in `external/install`
 as described above). The `CMAKE_PREFIX_PATH` in its `CMakeLists.txt` is
 pre-configured to look for libOTe under `${CMAKE_SOURCE_DIR}/external/install/`.
-It provides the `eq2<T>` and `cmp1<T>` template classes used in the PSO workflow.
 
 **Build standalone:**
 
 ```bash
-cd external/2PC_eq_cmp
+cd external/2PC_eq_cmp_v2
 mkdir build && cd build
 cmake ..
 cmake --build . --parallel
@@ -290,4 +284,77 @@ OMP_NUM_THREADS=4 ctest -R workflow_test -V
 ```
 
 Registered tests: `oprf_gf128_test`, `oprf_okvs_basic_test`, `oprf_test`,
-`cuckoo3_test`, `workflow_test`. A PermCG unit test is not currently provided.
+`cuckoo3_test`, `workflow_test`. Note that these do not exercise the permutation
+correlation generator — it lives in secure-join and is measured separately, see
+[Measuring PermCG](#measuring-permcg) below.
+
+## Measuring PermCG
+
+The permutation correlation generator (PermCG) comes from secure-join
+(`secure-join/secure-join/Perm/AltModPerm.h`) rather than from this repository,
+so its performance is measured with secure-join's own harness, `secJoinfrontend`.
+`build_deps.sh` builds that harness; no extra step is required.
+
+The executable ends up in the secure-join build tree:
+
+```
+external/secure-join/out/build/linux/frontend/secJoinfrontend
+```
+
+### Correctness check
+
+`AltModPerm_setup_test` runs the generator end to end over a local socket pair
+and verifies the permutation correlation. It should report `Passed`:
+
+```bash
+cd external/secure-join/out/build/linux/frontend
+./secJoinfrontend -u AltModPerm_setup_test
+```
+
+### Performance benchmark
+
+The benchmark reports wall-clock time and the bandwidth per evaluation:
+
+```bash
+cd external/secure-join/out/build/linux/frontend
+./secJoinfrontend -bench -AltModPerm -nn 20
+```
+
+Output format is `n <size>, nt <threads>, <time>ms <sent>+<recv>=<total> bytes/eval`:
+
+```
+AltModPerm: n 1048576, nt 1, 1184ms 192.031+64.0313=256.063 bytes/eval
+```
+
+| Flag | Meaning | Default |
+|---|---|---|
+| `-nn <log2n>` | log2 of the permutation size | `10` |
+| `-n <size>` | permutation size directly (overrides `-nn`) | `1 << nn` |
+| `-m <bytes>` | row size per element | `16` |
+| `-b <bits>` | log2 of the OLE batch size (`1 << b`) | `16` |
+| `-nt <threads>` | threads per party | `1` |
+
+`-b` controls the OLE batch size, not the width of the permuted values; use
+`-m` for the latter.
+
+### Representative results
+
+Measured on Ubuntu 24.04 (WSL2), Intel Core Ultra 5 225H, GCC 13.3, single
+thread unless noted. Bandwidth per evaluation is independent of `n`.
+
+| `-nn` | n | time | bytes/eval |
+|---|---|---|---|
+| 16 | 65,536 | 48 ms | 256.066 |
+| 18 | 262,144 | 211 ms | 256.063 |
+| 20 | 1,048,576 | 1113–1184 ms | 256.063 |
+| 22 | 4,194,304 | 11555 ms | 256.063 |
+| 20 (`-nt 4`) | 1,048,576 | 1023 ms | 256.063 |
+
+Treat these as a rough baseline on one machine rather than absolute figures.
+
+### Matching the workflow's parameter setting
+
+`pbsspmt/test/test_flow.cpp` operates on a set of `n = 1 << 20`. To report PermCG
+cost under the same setting, use `-nn 20`. Note that the current workflow does
+not call PermCG in code — `AltModPerm` appears only in comments there — so this
+benchmark is the stand-alone measurement of the sub-protocol.

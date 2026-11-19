@@ -152,6 +152,28 @@ else
     info "note: $SJ_CMAKE not found, skipping"
 fi
 
+# secJoinfrontend links "tests_cryptoTools", which ships no CMake package
+# config, so CMake passes it through as -ltests_cryptoTools and needs the
+# directory on the linker search path. This target builds the benchmarks and
+# the PermCG test harness (including AltModPerm), so it has to link.
+step "Patching secure-join frontend link path"
+SJ_FRONTEND="$SCRIPT_DIR/external/secure-join/frontend/CMakeLists.txt"
+if [[ -f "$SJ_FRONTEND" ]]; then
+    if grep -q 'target_link_directories(secJoinfrontend' "$SJ_FRONTEND"; then
+        info "already patched, skipping"
+    else
+        cat >> "$SJ_FRONTEND" <<'EOF'
+
+# tests_cryptoTools installs no CMake package config, so CMake resolves it as
+# -ltests_cryptoTools and needs the installed lib directory on the search path.
+target_link_directories(secJoinfrontend PRIVATE ${SECUREJOIN_THIRDPARTY_DIR}/lib)
+EOF
+        info "patched: added link directory for tests_cryptoTools"
+    fi
+else
+    info "note: $SJ_FRONTEND not found, skipping"
+fi
+
 # Some networks cannot reach github.com reliably; the vendored fetch scripts of
 # libOTe and secure-join clone extra repos mid-configure. Point them at a
 # mirror if the user asked for one.
@@ -265,10 +287,11 @@ else
             "${SODIUM_LIB_ARG[@]}" \
             >/dev/null || die "secure-join configure failed"
         info "building with $JOBS jobs"
-        # Build the library target only. The bundled secJoinfrontend demo needs
-        # libtests_cryptoTools, which is not part of the installed set, and
-        # nothing in this project uses that demo.
-        cmake --build out/build/linux --parallel "$JOBS" --target secureJoin \
+        # secureJoin is what this project links against; secJoinfrontend is the
+        # harness that runs the PermCG benchmark (AltModPerm) and is built here
+        # so those results can be reproduced without a second manual step.
+        cmake --build out/build/linux --parallel "$JOBS" \
+            --target secureJoin secJoinfrontend \
             || die "secure-join build failed"
         cd out/build/linux
         cmake --install . --prefix "$INSTALL_DIR" >/dev/null

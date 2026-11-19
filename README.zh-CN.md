@@ -55,8 +55,7 @@ CPU 要求：需要 SSE2、AVX2、PCLMUL 与 AES 指令集。**AVX-512 为可选
   |-- blake3           // blake3（子模块）
   |-- libOTe           // libOTe（子模块）
   |-- secure-join      // secure-join（子模块）
-  |-- 2PC_eq_cmp        // 两方相等性与比较协议（优化版）
-  |-- 2PC_eq_cmp_v2.original // 原始参考实现
+  |-- 2PC_eq_cmp_v2    // 两方相等性与比较协议
 - build                // 构建目录（生成）
 ```
 
@@ -169,22 +168,16 @@ cmake --install . --prefix "$(pwd)/../../../../install"
 
 `-DFETCH_LIBOTE=OFF` 使其复用上文已安装的 libOTe。若不加此参数，secure-join 会在自身 `out/` 目录下克隆并另行构建一份 libOTe。
 
-### 2PC_eq_cmp
+### 2PC_eq_cmp_v2
 
-`2PC_eq_cmp` 目录包含**性能优化版**的两方安全相等性测试与比较协议，提供 PSO 流程中使用的 `eq2<T>` 与 `cmp1<T>` 模板类。与[原始参考实现](https://zenodo.org/records/17217396)相比，我们作了如下优化：
-
-- **固定密钥 AES 伪随机生成器**：将逐节点的 AES 密钥扩展替换为单个预密钥化的 AES，减少约一亿次密钥编排。
-- **字节级旋转与拷贝**：以高效的字节级 `memcpy` 实现替换逐位操作。
-- **内存安全**：以 `std::vector` 替换裸 `new`/`delete`，并修复了比特长度小于 128 时的堆缓冲区溢出。
-
-建议使用该优化版本而非原始的 2PC_eq_cmp 源码。未经修改的原始代码保留在 `external/2PC_eq_cmp_v2.original` 供参考。
+`2PC_eq_cmp_v2` 目录包含我们改进版的两方安全相等性测试与比较协议，提供 PSO 流程中使用的 `eq2<T>` 与 `cmp1<T>` 模板类。
 
 该库依赖 libOTe（已按上文构建并安装至 `external/install`）。其 `CMakeLists.txt` 中的 `CMAKE_PREFIX_PATH` 已预配置为在 `${CMAKE_SOURCE_DIR}/external/install/` 下查找 libOTe。
 
 **独立构建：**
 
 ```bash
-cd external/2PC_eq_cmp
+cd external/2PC_eq_cmp_v2
 mkdir build && cd build
 cmake ..
 cmake --build . --parallel
@@ -255,7 +248,69 @@ ctest --output-on-failure
 OMP_NUM_THREADS=4 ctest -R workflow_test -V
 ```
 
-已注册的测试包括：`oprf_gf128_test`、`oprf_okvs_basic_test`、`oprf_test`、`cuckoo3_test`、`workflow_test`。目前未提供 PermCG 的单元测试。
+已注册的测试包括：`oprf_gf128_test`、`oprf_okvs_basic_test`、`oprf_test`、`cuckoo3_test`、`workflow_test`。需要注意，这些测试并不覆盖置换关联生成器——它位于 secure-join 中，需单独测量，详见下节。
+
+## 测量 PermCG
+
+置换关联生成器（Permutation Correlation Generator，PermCG）来自 secure-join（`secure-join/secure-join/Perm/AltModPerm.h`），而非本仓库，因此其性能通过 secure-join 自带的测试程序 `secJoinfrontend` 测量。`build_deps.sh` 会一并构建该程序，无需额外步骤。
+
+可执行文件位于 secure-join 的构建目录：
+
+```
+external/secure-join/out/build/linux/frontend/secJoinfrontend
+```
+
+### 正确性检验
+
+`AltModPerm_setup_test` 在本地套接字对上完整运行生成器并校验置换关联，应输出 `Passed`：
+
+```bash
+cd external/secure-join/out/build/linux/frontend
+./secJoinfrontend -u AltModPerm_setup_test
+```
+
+### 性能基准
+
+基准程序输出实际耗时与每次求值的通信量：
+
+```bash
+cd external/secure-join/out/build/linux/frontend
+./secJoinfrontend -bench -AltModPerm -nn 20
+```
+
+输出格式为 `n <规模>, nt <线程数>, <耗时>ms <发送>+<接收>=<合计> bytes/eval`：
+
+```
+AltModPerm: n 1048576, nt 1, 1184ms 192.031+64.0313=256.063 bytes/eval
+```
+
+| 参数 | 含义 | 默认值 |
+|---|---|---|
+| `-nn <log2n>` | 置换规模的以 2 为底对数 | `10` |
+| `-n <size>` | 直接指定置换规模（优先于 `-nn`） | `1 << nn` |
+| `-m <bytes>` | 每个元素的行大小 | `16` |
+| `-b <bits>` | OLE 批量大小的以 2 为底对数（`1 << b`） | `16` |
+| `-nt <threads>` | 每一方的线程数 | `1` |
+
+其中 `-b` 控制 OLE 的批量大小，而非被置换数值的位宽；后者请使用 `-m`。
+
+### 参考结果
+
+测试环境：Ubuntu 24.04（WSL2）、Intel Core Ultra 5 225H、GCC 13.3，除注明外均为单线程。每次求值的通信量与 `n` 无关。
+
+| `-nn` | n | 耗时 | bytes/eval |
+|---|---|---|---|
+| 16 | 65,536 | 48 ms | 256.066 |
+| 18 | 262,144 | 211 ms | 256.063 |
+| 20 | 1,048,576 | 1113–1184 ms | 256.063 |
+| 22 | 4,194,304 | 11555 ms | 256.063 |
+| 20（`-nt 4`） | 1,048,576 | 1023 ms | 256.063 |
+
+上述数值仅为单机粗略基线，不宜视为绝对值。
+
+### 与工作流参数设置对齐
+
+`pbsspmt/test/test_flow.cpp` 在规模 `n = 1 << 20` 下运行。若要在同一参数设置下报告 PermCG 开销，应使用 `-nn 20`。需要注意的是，当前工作流代码并未实际调用 PermCG（`AltModPerm` 仅出现在注释中），因此该基准是这一子协议的独立测量结果。
 
 ## 许可证
 
