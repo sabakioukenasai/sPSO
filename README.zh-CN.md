@@ -55,7 +55,8 @@ CPU 要求：需要 SSE2、AVX2、PCLMUL 与 AES 指令集。**AVX-512 为可选
   |-- blake3           // blake3（子模块）
   |-- libOTe           // libOTe（子模块）
   |-- secure-join      // secure-join（子模块）
-  |-- 2PC_eq_cmp_v2    // 两方相等性与比较协议
+  |-- 2PC_eq_cmp        // 两方相等性与比较协议（优化版）
+  |-- 2PC_eq_cmp_v2.original // 原始参考实现
 - build                // 构建目录（生成）
 ```
 
@@ -168,16 +169,22 @@ cmake --install . --prefix "$(pwd)/../../../../install"
 
 `-DFETCH_LIBOTE=OFF` 使其复用上文已安装的 libOTe。若不加此参数，secure-join 会在自身 `out/` 目录下克隆并另行构建一份 libOTe。
 
-### 2PC_eq_cmp_v2
+### 2PC_eq_cmp
 
-`2PC_eq_cmp_v2` 目录包含我们改进版的两方安全相等性测试与比较协议，提供 PSO 流程中使用的 `eq2<T>` 与 `cmp1<T>` 模板类。
+`2PC_eq_cmp` 目录包含**性能优化版**的两方安全相等性测试与比较协议，提供 PSO 流程中使用的 `eq2<T>` 与 `cmp1<T>` 模板类。与[原始参考实现](https://zenodo.org/records/17217396)相比，我们作了如下优化：
+
+- **固定密钥 AES 伪随机生成器**：将逐节点的 AES 密钥扩展替换为单个预密钥化的 AES，减少约一亿次密钥编排。
+- **字节级旋转与拷贝**：以高效的字节级 `memcpy` 实现替换逐位操作。
+- **内存安全**：以 `std::vector` 替换裸 `new`/`delete`，并修复了比特长度小于 128 时的堆缓冲区溢出。
+
+建议使用该优化版本而非原始的 2PC_eq_cmp 源码。未经修改的原始代码保留在 `external/2PC_eq_cmp_v2.original` 供参考。
 
 该库依赖 libOTe（已按上文构建并安装至 `external/install`）。其 `CMakeLists.txt` 中的 `CMAKE_PREFIX_PATH` 已预配置为在 `${CMAKE_SOURCE_DIR}/external/install/` 下查找 libOTe。
 
 **独立构建：**
 
 ```bash
-cd external/2PC_eq_cmp_v2
+cd external/2PC_eq_cmp
 mkdir build && cd build
 cmake ..
 cmake --build . --parallel

@@ -121,6 +121,37 @@ else
     info "note: $CT_HELPER not found, skipping"
 fi
 
+# secure-join links against "libOTe", but an installed libOTe exports the
+# namespaced target oc::libOTe only (the plain name does not exist outside
+# libOTe's own build tree). Linking the wrong name silently drops the
+# transitive include directories, so every secure-join source then fails with
+# "cryptoTools/Common/Defines.h: No such file or directory".
+step "Patching secure-join link target"
+SJ_CMAKE="$SCRIPT_DIR/external/secure-join/secure-join/CMakeLists.txt"
+if [[ -f "$SJ_CMAKE" ]]; then
+    if grep -q '^target_link_libraries(secureJoin libOTe)$' "$SJ_CMAKE"; then
+        python3 - "$SJ_CMAKE" <<'PY'
+import io, sys
+p = sys.argv[1]
+s = io.open(p, encoding="utf-8").read()
+s = s.replace(
+    "target_link_libraries(secureJoin libOTe)",
+    "if(TARGET oc::libOTe)\n"
+    "    target_link_libraries(secureJoin oc::libOTe)\n"
+    "else()\n"
+    "    target_link_libraries(secureJoin libOTe)\n"
+    "endif()",
+)
+io.open(p, "w", encoding="utf-8").write(s)
+PY
+        info "patched: libOTe -> oc::libOTe"
+    else
+        info "already patched (or upstream changed), skipping"
+    fi
+else
+    info "note: $SJ_CMAKE not found, skipping"
+fi
+
 # Some networks cannot reach github.com reliably; the vendored fetch scripts of
 # libOTe and secure-join clone extra repos mid-configure. Point them at a
 # mirror if the user asked for one.
@@ -234,7 +265,11 @@ else
             "${SODIUM_LIB_ARG[@]}" \
             >/dev/null || die "secure-join configure failed"
         info "building with $JOBS jobs"
-        cmake --build out/build/linux --parallel "$JOBS" || die "secure-join build failed"
+        # Build the library target only. The bundled secJoinfrontend demo needs
+        # libtests_cryptoTools, which is not part of the installed set, and
+        # nothing in this project uses that demo.
+        cmake --build out/build/linux --parallel "$JOBS" --target secureJoin \
+            || die "secure-join build failed"
         cd out/build/linux
         cmake --install . --prefix "$INSTALL_DIR" >/dev/null
     )
